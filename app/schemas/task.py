@@ -1,24 +1,23 @@
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
+
+from app.core.constants import (
+    TASK_TITLE_MAX_LENGTH,
+    TASK_TITLE_MIN_LENGTH,
+)
+from app.schemas.base import BaseSchema
 
 
-class TaskCreate(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
-
+class TaskCreate(BaseSchema):
     title: str = Field(
-        min_length=1,
-        max_length=200
+        min_length=TASK_TITLE_MIN_LENGTH, max_length=TASK_TITLE_MAX_LENGTH
     )
 
     description: str | None = None
 
 
-class TaskUpdate(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
-
+class TaskUpdate(BaseSchema):
     title: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=200
+        default=None, min_length=TASK_TITLE_MIN_LENGTH, max_length=TASK_TITLE_MAX_LENGTH
     )
 
     description: str | None = None
@@ -33,7 +32,7 @@ class TaskUpdate(BaseModel):
         return value
 
 
-class TaskResponse(BaseModel):
+class TaskResponse(BaseSchema):
     id: int
     title: str
     description: str | None = None

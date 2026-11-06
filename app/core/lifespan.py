@@ -1,12 +1,15 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("TaskHub is starting...")
+    logger.info("TaskHub is starting...")
 
     yield
 
-    print("TaskHub is shutting down...")
+    logger.info("TaskHub is shutting down...")

@@ -1,7 +1,6 @@
 from app.repositories.task_repository import TaskRepository
 from app.services.task_service import TaskService
 
-
 task_repository = TaskRepository()
 
 

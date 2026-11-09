@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, status
 
 from app.dependencies.common import get_task_service
@@ -5,6 +7,8 @@ from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
 from app.services.task_service import TaskService
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
+
+TaskServiceDep = Annotated[TaskService, Depends(get_task_service)]
 
 
 @router.post(
@@ -14,14 +18,14 @@ router = APIRouter(prefix="/tasks", tags=["Tasks"])
 )
 async def create_task(
     task_data: TaskCreate,
-    service: TaskService = Depends(get_task_service),
+    service: TaskServiceDep,
 ) -> TaskResponse:
     return service.create_task(task_data)
 
 
 @router.get("", response_model=list[TaskResponse])
 async def get_all_tasks(
-    service: TaskService = Depends(get_task_service),
+    service: TaskServiceDep,
 ) -> list[TaskResponse]:
     return service.get_all_tasks()
 
@@ -29,7 +33,7 @@ async def get_all_tasks(
 @router.get("/{task_id}", response_model=TaskResponse)
 async def get_task_by_id(
     task_id: int,
-    service: TaskService = Depends(get_task_service),
+    service: TaskServiceDep,
 ) -> TaskResponse:
     return service.get_task_by_id(task_id)
 
@@ -38,7 +42,7 @@ async def get_task_by_id(
 async def update_task(
     task_id: int,
     task_data: TaskUpdate,
-    service: TaskService = Depends(get_task_service),
+    service: TaskServiceDep,
 ) -> TaskResponse:
     return service.update_task(
         task_id,
@@ -52,6 +56,6 @@ async def update_task(
 )
 async def delete_task(
     task_id: int,
-    service: TaskService = Depends(get_task_service),
+    service: TaskServiceDep,
 ) -> None:
     service.delete_task(task_id)

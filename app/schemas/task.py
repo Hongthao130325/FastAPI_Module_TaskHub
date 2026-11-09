@@ -1,6 +1,7 @@
 from pydantic import Field, field_validator
 
 from app.core.constants import (
+    TASK_DESCRIPTION_MAX_LENGTH,
     TASK_TITLE_MAX_LENGTH,
     TASK_TITLE_MIN_LENGTH,
 )
@@ -10,18 +11,28 @@ from app.schemas.base import BaseSchema
 
 class TaskCreate(BaseSchema):
     title: str = Field(
-        min_length=TASK_TITLE_MIN_LENGTH, max_length=TASK_TITLE_MAX_LENGTH
+        min_length=TASK_TITLE_MIN_LENGTH,
+        max_length=TASK_TITLE_MAX_LENGTH,
     )
 
-    description: str | None = None
+    description: str | None = Field(
+        default=None,
+        max_length=TASK_DESCRIPTION_MAX_LENGTH,
+    )
 
 
 class TaskUpdate(BaseSchema):
     title: str | None = Field(
-        default=None, min_length=TASK_TITLE_MIN_LENGTH, max_length=TASK_TITLE_MAX_LENGTH
+        default=None,
+        min_length=TASK_TITLE_MIN_LENGTH,
+        max_length=TASK_TITLE_MAX_LENGTH,
     )
 
-    description: str | None = None
+    description: str | None = Field(
+        default=None,
+        max_length=TASK_DESCRIPTION_MAX_LENGTH,
+    )
+
     is_completed: bool | None = None
 
     @field_validator("title", "is_completed", mode="before")

@@ -1,4 +1,5 @@
 from app.core.exceptions import NotFoundException
+from app.core.messages import TASK_NOT_FOUND_MESSAGE
 from app.models.task import Task
 from app.repositories.task_repository import TaskRepository
 from app.schemas.task import TaskCreate
@@ -20,7 +21,7 @@ class TaskService:
         task = self.repository.get_by_id(task_id)
 
         if task is None:
-            raise NotFoundException()
+            raise NotFoundException(TASK_NOT_FOUND_MESSAGE)
 
         return task
 
@@ -28,7 +29,7 @@ class TaskService:
         task = self.repository.update(task_id, update_data)
 
         if task is None:
-            raise NotFoundException()
+            raise NotFoundException(TASK_NOT_FOUND_MESSAGE)
 
         return task
 
@@ -36,4 +37,4 @@ class TaskService:
         deleted = self.repository.delete(task_id)
 
         if not deleted:
-            raise NotFoundException()
+            raise NotFoundException(TASK_NOT_FOUND_MESSAGE)

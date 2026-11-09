@@ -1,11 +1,11 @@
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from app.core.constants import TASK_NOT_FOUND_MESSAGE
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import AppException
 
 
-async def not_found_exception_handler(
-    request: Request, exc: NotFoundException
-) -> JSONResponse:
-    return JSONResponse(status_code=404, content={"detail": TASK_NOT_FOUND_MESSAGE})
+async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.message},
+    )

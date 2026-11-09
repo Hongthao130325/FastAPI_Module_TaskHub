@@ -4,6 +4,7 @@ from app.core.constants import (
     TASK_TITLE_MAX_LENGTH,
     TASK_TITLE_MIN_LENGTH,
 )
+from app.core.messages import FIELD_CANNOT_BE_NULL_MESSAGE
 from app.schemas.base import BaseSchema
 
 
@@ -27,7 +28,7 @@ class TaskUpdate(BaseSchema):
     @classmethod
     def reject_null_values(cls, value):
         if value is None:
-            raise ValueError("Field cannot be null")
+            raise ValueError(FIELD_CANNOT_BE_NULL_MESSAGE)
 
         return value
 

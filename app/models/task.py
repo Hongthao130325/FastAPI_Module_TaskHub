@@ -54,7 +54,6 @@ class Task(Base):
         nullable=False,
         default=TaskStatus.TODO,
         server_default=TaskStatus.TODO.value,
-        index=True,
     )
 
     priority: Mapped[TaskPriority] = mapped_column(
@@ -62,7 +61,6 @@ class Task(Base):
         nullable=False,
         default=TaskPriority.MEDIUM,
         server_default=TaskPriority.MEDIUM.value,
-        index=True,
     )
 
     due_date: Mapped[datetime | None] = mapped_column(

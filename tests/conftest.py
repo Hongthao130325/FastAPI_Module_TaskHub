@@ -1,8 +1,12 @@
+import os
+import subprocess
+import sys
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.engine import URL
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -16,22 +20,71 @@ from app.models.project import Project
 from app.models.user import User
 from app.models.workspace import Workspace
 
-TEST_DATABASE_NAME = "taskhub_test"
+_test_database_initialized = False
+
+
+async def ensure_test_database() -> None:
+    global _test_database_initialized
+
+    if _test_database_initialized:
+        return
+
+    test_database_name = settings.POSTGRES_TEST_DB
+
+    if test_database_name == settings.POSTGRES_DB:
+        raise RuntimeError(
+            "Test database must be different from the development database."
+        )
+
+    admin_database_url = settings.DATABASE_URL.set(database="postgres")
+
+    admin_engine = create_async_engine(
+        admin_database_url,
+        isolation_level="AUTOCOMMIT",
+    )
+
+    try:
+        async with admin_engine.connect() as connection:
+            database_exists = await connection.scalar(
+                text("SELECT 1 FROM pg_database WHERE datname = :database_name"),
+                {"database_name": test_database_name},
+            )
+
+            if not database_exists:
+                quoted_database_name = connection.dialect.identifier_preparer.quote(
+                    test_database_name
+                )
+
+                await connection.exec_driver_sql(
+                    f"CREATE DATABASE {quoted_database_name}"
+                )
+
+    finally:
+        await admin_engine.dispose()
+
+    environment = os.environ.copy()
+    environment["POSTGRES_DB"] = test_database_name
+
+    project_root = Path(__file__).resolve().parents[1]
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=project_root,
+        env=environment,
+        check=True,
+    )
+
+    _test_database_initialized = True
 
 
 @pytest_asyncio.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    database_url = URL.create(
-        drivername="postgresql+asyncpg",
-        username=settings.POSTGRES_USER,
-        password=settings.POSTGRES_PASSWORD,
-        host="localhost",
-        port=settings.POSTGRES_PORT,
-        database=TEST_DATABASE_NAME,
-    )
+    await ensure_test_database()
+
+    test_database_url = settings.DATABASE_URL.set(database=settings.POSTGRES_TEST_DB)
 
     engine = create_async_engine(
-        database_url,
+        test_database_url,
         echo=False,
         pool_pre_ping=True,
     )
@@ -47,10 +100,12 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
                 join_transaction_mode="create_savepoint",
             )
 
-            async with session_factory() as session:
-                yield session
+            try:
+                async with session_factory() as session:
+                    yield session
 
-            await transaction.rollback()
+            finally:
+                await transaction.rollback()
 
     finally:
         await engine.dispose()

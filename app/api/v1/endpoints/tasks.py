@@ -15,6 +15,21 @@ from app.services.task_service import TaskService
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
 TaskServiceDep = Annotated[TaskService, Depends(get_task_service)]
+LimitQuery = Annotated[
+    int,
+    Query(
+        ge=1,
+        le=MAX_PAGE_SIZE,
+        description="Maximum number of tasks to return.",
+    ),
+]
+OffsetQuery = Annotated[
+    int,
+    Query(
+        ge=0,
+        description="Number of tasks to skip.",
+    ),
+]
 
 
 @router.post(
@@ -31,15 +46,19 @@ async def create_task(
     return TaskResponse.model_validate(task)
 
 
-@router.get("", response_model=TaskListResponse)
+@router.get(
+    "",
+    response_model=TaskListResponse,
+    summary="Get all tasks",
+    responses={
+        200: {"description": "Tasks retrieved successfully."},
+        422: {"description": "Invalid pagination parameters."},
+    },
+)
 async def get_all_tasks(
     service: TaskServiceDep,
-    limit: int = Query(
-        default=DEFAULT_PAGE_SIZE,
-        ge=1,
-        le=MAX_PAGE_SIZE,
-    ),
-    offset: int = Query(default=DEFAULT_OFFSET, ge=0),
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = DEFAULT_OFFSET,
 ) -> TaskListResponse:
     tasks, total = await service.get_all_tasks(limit, offset)
 

@@ -7,7 +7,6 @@ async def test_create_task_success(
 ):
     payload = {
         "project_id": task_context["project_id"],
-        "created_by": task_context["user_id"],
         "title": "Test Task",
         "description": "Task created by automated test",
     }
@@ -21,7 +20,7 @@ async def test_create_task_success(
     assert data["title"] == payload["title"]
     assert data["description"] == payload["description"]
     assert data["project_id"] == payload["project_id"]
-    assert data["created_by"] == payload["created_by"]
+    assert data["created_by"] == task_context["user_id"]
     assert data["status"] == "TODO"
     assert data["priority"] == "MEDIUM"
     assert data["assignee_id"] is None
@@ -34,7 +33,6 @@ async def test_create_task_with_invalid_project(
 ):
     payload = {
         "project_id": 999999,
-        "created_by": task_context["user_id"],
         "title": "Invalid Project Task",
     }
 
@@ -44,20 +42,20 @@ async def test_create_task_with_invalid_project(
     assert response.json()["detail"] == "Project not found"
 
 
-async def test_create_task_with_invalid_creator(
+async def test_create_task_rejects_client_provided_creator(
     async_client: AsyncClient,
     task_context: dict[str, int],
 ):
-    payload = {
-        "project_id": task_context["project_id"],
-        "created_by": 999999,
-        "title": "Invalid Creator Task",
-    }
+    response = await async_client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": task_context["project_id"],
+            "created_by": 999999,
+            "title": "Client Provided Creator Task",
+        },
+    )
 
-    response = await async_client.post("/api/v1/tasks", json=payload)
-
-    assert response.status_code == 404
-    assert response.json()["detail"] == "User not found"
+    assert response.status_code == 422
 
 
 async def test_create_task_with_invalid_assignee(
@@ -66,7 +64,6 @@ async def test_create_task_with_invalid_assignee(
 ):
     payload = {
         "project_id": task_context["project_id"],
-        "created_by": task_context["user_id"],
         "assignee_id": 999999,
         "title": "Invalid Assignee Task",
     }
@@ -83,7 +80,6 @@ async def test_get_all_tasks(
 ):
     payload = {
         "project_id": task_context["project_id"],
-        "created_by": task_context["user_id"],
         "title": "Task For Listing",
     }
 
@@ -111,7 +107,6 @@ async def test_get_all_tasks_with_limit_and_offset(
             "/api/v1/tasks",
             json={
                 "project_id": task_context["project_id"],
-                "created_by": task_context["user_id"],
                 "title": f"Task {index + 1}",
             },
         )
@@ -145,7 +140,6 @@ async def test_get_all_tasks_with_empty_page(
         "/api/v1/tasks",
         json={
             "project_id": task_context["project_id"],
-            "created_by": task_context["user_id"],
             "title": "Task For Empty Page",
         },
     )
@@ -204,7 +198,6 @@ async def test_get_task_by_id(
 ):
     payload = {
         "project_id": task_context["project_id"],
-        "created_by": task_context["user_id"],
         "title": "Task For Detail",
     }
 
@@ -240,7 +233,6 @@ async def test_update_task_success(
 ):
     payload = {
         "project_id": task_context["project_id"],
-        "created_by": task_context["user_id"],
         "title": "Original Task",
     }
 
@@ -276,7 +268,6 @@ async def test_update_task_clear_assignee(
         "/api/v1/tasks",
         json={
             "project_id": task_context["project_id"],
-            "created_by": task_context["user_id"],
             "title": "Task With Assignee",
         },
     )
@@ -300,7 +291,6 @@ async def test_update_task_with_invalid_assignee(
         "/api/v1/tasks",
         json={
             "project_id": task_context["project_id"],
-            "created_by": task_context["user_id"],
             "title": "Task For Invalid Assignee",
         },
     )
@@ -336,7 +326,6 @@ async def test_update_task_with_null_title(
         "/api/v1/tasks",
         json={
             "project_id": task_context["project_id"],
-            "created_by": task_context["user_id"],
             "title": "Task For Null Validation",
         },
     )
@@ -359,7 +348,6 @@ async def test_delete_task_success(
         "/api/v1/tasks",
         json={
             "project_id": task_context["project_id"],
-            "created_by": task_context["user_id"],
             "title": "Task For Deletion",
         },
     )
@@ -388,3 +376,119 @@ async def test_delete_task_with_invalid_id(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Task not found"
+
+
+async def test_create_task_with_future_aware_due_date(
+    async_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    response = await async_client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": task_context["project_id"],
+            "title": "Task With Future Due Date",
+            "due_date": "2099-12-01T10:00:00+07:00",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["due_date"] is not None
+
+
+async def test_create_task_with_naive_due_date(
+    async_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    response = await async_client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": task_context["project_id"],
+            "title": "Task With Naive Due Date",
+            "due_date": "2099-12-01T10:00:00",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+async def test_create_task_with_past_due_date(
+    async_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    response = await async_client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": task_context["project_id"],
+            "title": "Task With Past Due Date",
+            "due_date": "2000-01-01T10:00:00+07:00",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+async def test_update_task_with_future_aware_due_date(
+    async_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    create_response = await async_client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": task_context["project_id"],
+            "title": "Task For Future Due Date Update",
+        },
+    )
+
+    task_id = create_response.json()["id"]
+
+    response = await async_client.patch(
+        f"/api/v1/tasks/{task_id}",
+        json={"due_date": "2099-12-01T10:00:00+07:00"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["due_date"] is not None
+
+
+async def test_update_task_with_naive_due_date(
+    async_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    create_response = await async_client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": task_context["project_id"],
+            "title": "Task For Naive Due Date Update",
+        },
+    )
+
+    task_id = create_response.json()["id"]
+
+    response = await async_client.patch(
+        f"/api/v1/tasks/{task_id}",
+        json={"due_date": "2099-12-01T10:00:00"},
+    )
+
+    assert response.status_code == 422
+
+
+async def test_update_task_with_past_due_date(
+    async_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    create_response = await async_client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": task_context["project_id"],
+            "title": "Task For Past Due Date Update",
+        },
+    )
+
+    task_id = create_response.json()["id"]
+
+    response = await async_client.patch(
+        f"/api/v1/tasks/{task_id}",
+        json={"due_date": "2000-01-01T10:00:00+07:00"},
+    )
+
+    assert response.status_code == 422

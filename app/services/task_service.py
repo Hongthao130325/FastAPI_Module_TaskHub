@@ -2,6 +2,7 @@ from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, NotFoundException
 from app.core.messages import (
@@ -21,9 +22,11 @@ T = TypeVar("T")
 class TaskService:
     def __init__(
         self,
+        session: AsyncSession,
         repository: TaskRepository,
         reference_repository: ReferenceRepository,
     ):
+        self.session = session
         self.repository = repository
         self.reference_repository = reference_repository
 
@@ -33,48 +36,45 @@ class TaskService:
     ) -> T:
         try:
             result = await operation()
-            await self.repository.session.commit()
+            await self.session.commit()
 
             return result
 
         except IntegrityError as exc:
-            await self.repository.session.rollback()
+            await self.session.rollback()
 
             raise ConflictException(RESOURCE_CONFLICT_MESSAGE) from exc
-
-        except Exception:
-            await self.repository.session.rollback()
-
-            raise
 
     async def _validate_task_references(
         self,
         project_id: int,
-        created_by: int,
         assignee_id: int | None,
-    ) -> None:
-        if not await self.reference_repository.project_exists(project_id):
-            raise NotFoundException(PROJECT_NOT_FOUND_MESSAGE)
+    ) -> int:
+        owner_id = await self.reference_repository.get_project_owner_id(project_id)
 
-        if not await self.reference_repository.user_exists(created_by):
-            raise NotFoundException(USER_NOT_FOUND_MESSAGE)
+        if owner_id is None:
+            raise NotFoundException(PROJECT_NOT_FOUND_MESSAGE)
 
         if assignee_id is not None:
             if not await self.reference_repository.user_exists(assignee_id):
                 raise NotFoundException(USER_NOT_FOUND_MESSAGE)
 
+        return owner_id
+
     async def create_task(self, task_data: TaskCreate) -> Task:
-        await self._validate_task_references(
+        created_by = await self._validate_task_references(
             project_id=task_data.project_id,
-            created_by=task_data.created_by,
             assignee_id=task_data.assignee_id,
         )
 
-        task = Task(**task_data.model_dump())
+        task = Task(
+            **task_data.model_dump(),
+            created_by=created_by,
+        )
 
         await self._execute_write(lambda: self.repository.create(task))
 
-        await self.repository.session.refresh(task)
+        await self.session.refresh(task)
 
         return task
 
@@ -111,7 +111,7 @@ class TaskService:
 
         await self._execute_write(lambda: self.repository.update(task, update_data))
 
-        await self.repository.session.refresh(task)
+        await self.session.refresh(task)
 
         return task
 

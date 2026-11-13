@@ -2,7 +2,6 @@ import asyncio
 from logging.config import fileConfig
 
 from sqlalchemy import pool
-from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 import app.models  # noqa: F401
@@ -15,19 +14,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-
-database_url = URL.create(
-    drivername="postgresql+asyncpg",
-    username=settings.POSTGRES_USER,
-    password=settings.POSTGRES_PASSWORD,
-    host="localhost",
-    port=settings.POSTGRES_PORT,
-    database=settings.POSTGRES_DB,
-)
-
 config.set_main_option(
     "sqlalchemy.url",
-    database_url.render_as_string(hide_password=False).replace("%", "%%"),
+    settings.DATABASE_URL.render_as_string(
+        hide_password=False,
+    ).replace("%", "%%"),
 )
 
 target_metadata = Base.metadata

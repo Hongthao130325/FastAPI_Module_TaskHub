@@ -22,6 +22,7 @@ def get_task_service(
     reference_repository = ReferenceRepository(session)
 
     return TaskService(
+        session=session,
         repository=task_repository,
         reference_repository=reference_repository,
     )

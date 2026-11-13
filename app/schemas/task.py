@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
-from pydantic import Field, field_validator
+from pydantic import AwareDatetime, ConfigDict, Field, field_validator
 
 from app.core.constants import (
     MAX_PAGE_SIZE,
@@ -14,8 +14,8 @@ from app.schemas.base import BaseSchema
 
 
 class TaskCreate(BaseSchema):
+    model_config = ConfigDict(extra="forbid")
     project_id: int = Field(gt=0)
-    created_by: int = Field(gt=0)
     assignee_id: int | None = Field(default=None, gt=0)
 
     title: str = Field(
@@ -30,7 +30,15 @@ class TaskCreate(BaseSchema):
 
     status: TaskStatus = TaskStatus.TODO
     priority: TaskPriority = TaskPriority.MEDIUM
-    due_date: datetime | None = None
+    due_date: AwareDatetime | None = None
+
+    @field_validator("due_date")
+    @classmethod
+    def validate_due_date(cls, value: AwareDatetime | None):
+        if value is not None and value < datetime.now(UTC):
+            raise ValueError("Due date must be in the future.")
+
+        return value
 
 
 class TaskUpdate(BaseSchema):
@@ -48,7 +56,15 @@ class TaskUpdate(BaseSchema):
     assignee_id: int | None = Field(default=None, gt=0)
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
-    due_date: datetime | None = None
+    due_date: AwareDatetime | None = None
+
+    @field_validator("due_date")
+    @classmethod
+    def validate_due_date(cls, value: AwareDatetime | None):
+        if value is not None and value < datetime.now(UTC):
+            raise ValueError("Due date must be in the future.")
+
+        return value
 
     @field_validator("title", "status", "priority", mode="before")
     @classmethod

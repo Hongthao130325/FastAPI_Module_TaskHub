@@ -1,46 +1,47 @@
-from app.core.constants import DEFAULT_TASK_IS_COMPLETED
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.task import Task
 
 
 class TaskRepository:
-    def __init__(self):
-        self.tasks: dict[int, Task] = {}
-        self.next_id = 1
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
-    def create(self, task_data: dict) -> Task:
-        task = Task(
-            id=self.next_id,
-            title=task_data["title"],
-            description=task_data.get("description"),
-            is_completed=DEFAULT_TASK_IS_COMPLETED,
-        )
-
-        self.tasks[self.next_id] = task
-        self.next_id += 1
+    async def create(self, task: Task) -> Task:
+        self.session.add(task)
+        await self.session.flush()
 
         return task
 
-    def get_all(self) -> list[Task]:
-        return list(self.tasks.values())
+    async def get_all(
+        self,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Task], int]:
+        count_statement = select(func.count()).select_from(Task)
+        total = await self.session.scalar(count_statement)
 
-    def get_by_id(self, task_id: int) -> Task | None:
-        return self.tasks.get(task_id)
+        statement = select(Task).order_by(Task.id).limit(limit).offset(offset)
 
-    def update(self, task_id: int, update_data: dict) -> Task | None:
-        task = self.get_by_id(task_id)
+        result = await self.session.scalars(statement)
 
-        if task is None:
-            return None
+        return list(result.all()), total or 0
 
+    async def get_by_id(self, task_id: int) -> Task | None:
+        return await self.session.get(Task, task_id)
+
+    async def update(
+        self,
+        task: Task,
+        update_data: dict,
+    ) -> Task:
         for field, value in update_data.items():
             setattr(task, field, value)
 
+        await self.session.flush()
+
         return task
 
-    def delete(self, task_id: int) -> bool:
-        if task_id not in self.tasks:
-            return False
-
-        del self.tasks[task_id]
-
-        return True
+    async def delete(self, task: Task) -> None:
+        await self.session.delete(task)

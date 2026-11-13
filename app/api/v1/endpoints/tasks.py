@@ -1,14 +1,35 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
+from app.core.constants import DEFAULT_OFFSET, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.dependencies.common import get_task_service
-from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
+from app.schemas.task import (
+    TaskCreate,
+    TaskListResponse,
+    TaskResponse,
+    TaskUpdate,
+)
 from app.services.task_service import TaskService
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
 TaskServiceDep = Annotated[TaskService, Depends(get_task_service)]
+LimitQuery = Annotated[
+    int,
+    Query(
+        ge=1,
+        le=MAX_PAGE_SIZE,
+        description="Maximum number of tasks to return.",
+    ),
+]
+OffsetQuery = Annotated[
+    int,
+    Query(
+        ge=0,
+        description="Number of tasks to skip.",
+    ),
+]
 
 
 @router.post(
@@ -20,14 +41,33 @@ async def create_task(
     task_data: TaskCreate,
     service: TaskServiceDep,
 ) -> TaskResponse:
-    return service.create_task(task_data)
+    task = await service.create_task(task_data)
+
+    return TaskResponse.model_validate(task)
 
 
-@router.get("", response_model=list[TaskResponse])
+@router.get(
+    "",
+    response_model=TaskListResponse,
+    summary="Get all tasks",
+    responses={
+        200: {"description": "Tasks retrieved successfully."},
+        422: {"description": "Invalid pagination parameters."},
+    },
+)
 async def get_all_tasks(
     service: TaskServiceDep,
-) -> list[TaskResponse]:
-    return service.get_all_tasks()
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = DEFAULT_OFFSET,
+) -> TaskListResponse:
+    tasks, total = await service.get_all_tasks(limit, offset)
+
+    return TaskListResponse(
+        items=[TaskResponse.model_validate(task) for task in tasks],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/{task_id}", response_model=TaskResponse)
@@ -35,7 +75,9 @@ async def get_task_by_id(
     task_id: int,
     service: TaskServiceDep,
 ) -> TaskResponse:
-    return service.get_task_by_id(task_id)
+    task = await service.get_task_by_id(task_id)
+
+    return TaskResponse.model_validate(task)
 
 
 @router.patch("/{task_id}", response_model=TaskResponse)
@@ -44,10 +86,12 @@ async def update_task(
     task_data: TaskUpdate,
     service: TaskServiceDep,
 ) -> TaskResponse:
-    return service.update_task(
+    task = await service.update_task(
         task_id,
         task_data.model_dump(exclude_unset=True),
     )
+
+    return TaskResponse.model_validate(task)
 
 
 @router.delete(
@@ -58,4 +102,4 @@ async def delete_task(
     task_id: int,
     service: TaskServiceDep,
 ) -> None:
-    service.delete_task(task_id)
+    await service.delete_task(task_id)

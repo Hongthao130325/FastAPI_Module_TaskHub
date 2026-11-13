@@ -4,7 +4,13 @@ from fastapi.responses import JSONResponse
 from app.core.exceptions import AppException
 
 
-async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+async def app_exception_handler(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    if not isinstance(exc, AppException):
+        raise exc
+
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.message},

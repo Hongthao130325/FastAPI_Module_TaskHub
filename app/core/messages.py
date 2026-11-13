@@ -1,2 +1,5 @@
 TASK_NOT_FOUND_MESSAGE = "Task not found"
+PROJECT_NOT_FOUND_MESSAGE = "Project not found"
+USER_NOT_FOUND_MESSAGE = "User not found"
 FIELD_CANNOT_BE_NULL_MESSAGE = "Field cannot be null"
+RESOURCE_CONFLICT_MESSAGE = "Resource conflict"

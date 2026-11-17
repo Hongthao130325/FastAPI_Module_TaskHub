@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from app.core.constants import DEFAULT_OFFSET, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from app.dependencies.auth import CurrentUserDep
 from app.dependencies.common import get_task_service
 from app.schemas.task import (
     TaskCreate,
@@ -40,8 +41,12 @@ OffsetQuery = Annotated[
 async def create_task(
     task_data: TaskCreate,
     service: TaskServiceDep,
+    current_user: CurrentUserDep,
 ) -> TaskResponse:
-    task = await service.create_task(task_data)
+    task = await service.create_task(
+        task_data,
+        current_user.user.id,
+    )
 
     return TaskResponse.model_validate(task)
 
@@ -57,10 +62,15 @@ async def create_task(
 )
 async def get_all_tasks(
     service: TaskServiceDep,
+    current_user: CurrentUserDep,
     limit: LimitQuery = DEFAULT_PAGE_SIZE,
     offset: OffsetQuery = DEFAULT_OFFSET,
 ) -> TaskListResponse:
-    tasks, total = await service.get_all_tasks(limit, offset)
+    tasks, total = await service.get_all_tasks(
+        user_id=current_user.user.id,
+        limit=limit,
+        offset=offset,
+    )
 
     return TaskListResponse(
         items=[TaskResponse.model_validate(task) for task in tasks],
@@ -74,8 +84,12 @@ async def get_all_tasks(
 async def get_task_by_id(
     task_id: int,
     service: TaskServiceDep,
+    current_user: CurrentUserDep,
 ) -> TaskResponse:
-    task = await service.get_task_by_id(task_id)
+    task = await service.get_task_by_id(
+        task_id,
+        current_user.user.id,
+    )
 
     return TaskResponse.model_validate(task)
 
@@ -85,10 +99,12 @@ async def update_task(
     task_id: int,
     task_data: TaskUpdate,
     service: TaskServiceDep,
+    current_user: CurrentUserDep,
 ) -> TaskResponse:
     task = await service.update_task(
         task_id,
         task_data.model_dump(exclude_unset=True),
+        current_user.user.id,
     )
 
     return TaskResponse.model_validate(task)
@@ -101,5 +117,9 @@ async def update_task(
 async def delete_task(
     task_id: int,
     service: TaskServiceDep,
+    current_user: CurrentUserDep,
 ) -> None:
-    await service.delete_task(task_id)
+    await service.delete_task(
+        task_id,
+        current_user.user.id,
+    )

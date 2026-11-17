@@ -2,7 +2,9 @@ import os
 import subprocess
 import sys
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -14,13 +16,44 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import settings
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+)
 from app.dependencies.common import get_db
 from app.main import app
 from app.models.project import Project
+from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.models.workspace import Workspace
 
 _test_database_initialized = False
+
+
+async def create_test_access_token(
+    db_session: AsyncSession,
+    user_id: int,
+) -> str:
+    session_id = str(uuid4())
+
+    refresh_token = create_refresh_token(user_id, session_id)
+    payload = decode_refresh_token(refresh_token)
+
+    db_session.add(
+        RefreshToken(
+            jti=payload["jti"],
+            user_id=user_id,
+            session_id=session_id,
+            expires_at=datetime.fromtimestamp(payload["exp"], UTC),
+        )
+    )
+    await db_session.flush()
+
+    return create_access_token(
+        subject=user_id,
+        session_id=session_id,
+    )
 
 
 async def ensure_test_database() -> None:
@@ -167,3 +200,66 @@ async def task_context(
         "workspace_id": workspace.id,
         "project_id": project.id,
     }
+
+
+@pytest_asyncio.fixture
+async def authenticated_client(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    task_context: dict[str, int],
+) -> AsyncGenerator[AsyncClient, None]:
+    access_token = await create_test_access_token(
+        db_session,
+        task_context["user_id"],
+    )
+
+    async_client.headers["Authorization"] = f"Bearer {access_token}"
+
+    yield async_client
+
+
+@pytest_asyncio.fixture
+async def another_user_context(
+    db_session: AsyncSession,
+) -> dict[str, int]:
+    user = User(
+        email="another-task-test@example.com",
+        full_name="Another Task Test User",
+        hashed_password="test-hash",
+    )
+
+    db_session.add(user)
+    await db_session.flush()
+
+    workspace = Workspace(
+        name="Another Task Test Workspace",
+        owner_id=user.id,
+    )
+
+    db_session.add(workspace)
+    await db_session.flush()
+
+    project = Project(
+        workspace_id=workspace.id,
+        name="Another Task Test Project",
+    )
+
+    db_session.add(project)
+    await db_session.flush()
+
+    return {
+        "user_id": user.id,
+        "workspace_id": workspace.id,
+        "project_id": project.id,
+    }
+
+
+@pytest_asyncio.fixture
+async def another_user_token(
+    db_session: AsyncSession,
+    another_user_context: dict[str, int],
+) -> str:
+    return await create_test_access_token(
+        db_session,
+        another_user_context["user_id"],
+    )

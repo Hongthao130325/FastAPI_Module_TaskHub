@@ -11,7 +11,13 @@ async def app_exception_handler(
     if not isinstance(exc, AppException):
         raise exc
 
+    headers = {}
+
+    if exc.status_code == 401:
+        headers["WWW-Authenticate"] = "Bearer"
+
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.message},
+        headers=headers,
     )

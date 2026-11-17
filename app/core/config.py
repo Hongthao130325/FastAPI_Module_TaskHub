@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -11,6 +11,28 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5433
     DB_ECHO: bool = False
+
+    SECRET_KEY: SecretStr = Field(min_length=32)
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, gt=0)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, gt=0)
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, value: SecretStr) -> SecretStr:
+        secret = value.get_secret_value().lower()
+
+        placeholders = (
+            "change-me",
+            "replace-with",
+            "your-secret",
+            "your-secret-key",
+        )
+
+        if any(placeholder in secret for placeholder in placeholders):
+            raise ValueError("SECRET_KEY must not use a placeholder value.")
+
+        return value
 
     @property
     def DATABASE_URL(self) -> URL:

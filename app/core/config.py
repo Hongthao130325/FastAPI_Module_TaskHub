@@ -1,6 +1,10 @@
+from typing import Literal
+
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
+
+from app.core.messages import SECRET_KEY_PLACEHOLDER_MESSAGE
 
 
 class Settings(BaseSettings):
@@ -13,7 +17,7 @@ class Settings(BaseSettings):
     DB_ECHO: bool = False
 
     SECRET_KEY: SecretStr = Field(min_length=32)
-    ALGORITHM: str = "HS256"
+    ALGORITHM: Literal["HS256", "HS384", "HS512"] = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, gt=0)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, gt=0)
 
@@ -30,7 +34,7 @@ class Settings(BaseSettings):
         )
 
         if any(placeholder in secret for placeholder in placeholders):
-            raise ValueError("SECRET_KEY must not use a placeholder value.")
+            raise ValueError(SECRET_KEY_PLACEHOLDER_MESSAGE)
 
         return value
 

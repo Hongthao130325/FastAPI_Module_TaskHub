@@ -23,10 +23,12 @@ from app.core.security import (
 )
 from app.dependencies.common import get_db
 from app.main import app
+from app.models.enums import WorkspaceRole
 from app.models.project import Project
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.models.workspace_member import WorkspaceMember
 
 _test_database_initialized = False
 
@@ -191,6 +193,15 @@ async def user_context_factory(
         )
 
         db_session.add(workspace)
+        await db_session.flush()
+
+        membership = WorkspaceMember(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role=WorkspaceRole.OWNER,
+        )
+
+        db_session.add(membership)
         await db_session.flush()
 
         project = Project(

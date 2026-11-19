@@ -56,6 +56,14 @@ Tạo file `.env` từ file mẫu:
 Copy-Item .env.example .env
 ```
 
+Tạo SECRET_KEY ngẫu nhiên:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Sao chép giá trị được tạo và thay thế placeholder `SECRET_KEY` trong file `.env` bằng giá trị đó trước khi chạy ứng dụng hoặc test.
+
 Cập nhật thông tin database trong `.env`:
 
 ```env
@@ -173,7 +181,6 @@ python -m alembic current
 - Reusing a revoked refresh token is treated as token replay. The server revokes the entire associated session.
 - Clients must serialize refresh requests and avoid sending concurrent requests with the same refresh token.
 - Logging out revokes the current session. Changing the password revokes all active refresh-token sessions for the user.
-
 
 ## Task Access Control
 

@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.models.enums import TokenType
 
 password_hash = PasswordHash.recommended()
+DUMMY_HASH = password_hash.hash("taskhub-dummy-password-for-timing-equalization")
 
 
 def hash_password(password: str) -> str:
@@ -72,6 +73,33 @@ def create_refresh_token(
         token_type=TokenType.REFRESH,
         expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     )
+
+
+def create_refresh_token_with_metadata(
+    subject: str | int,
+    session_id: str,
+) -> tuple[str, str, datetime]:
+    now = datetime.now(UTC)
+    jti = str(uuid4())
+    expires_at = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    expires_at = datetime.fromtimestamp(int(expires_at.timestamp()), UTC)
+
+    payload = {
+        "sub": str(subject),
+        "sid": session_id,
+        "jti": jti,
+        "iat": now,
+        "exp": expires_at,
+        "type": TokenType.REFRESH.value,
+    }
+
+    token = jwt.encode(
+        payload,
+        settings.SECRET_KEY.get_secret_value(),
+        algorithm=settings.ALGORITHM,
+    )
+
+    return token, jti, expires_at
 
 
 def _decode_token(

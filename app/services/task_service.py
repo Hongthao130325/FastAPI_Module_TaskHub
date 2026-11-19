@@ -4,8 +4,13 @@ from typing import TypeVar
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictException, NotFoundException
+from app.core.exceptions import (
+    ConflictException,
+    ForbiddenException,
+    NotFoundException,
+)
 from app.core.messages import (
+    PROJECT_ACCESS_FORBIDDEN_MESSAGE,
     PROJECT_NOT_FOUND_MESSAGE,
     RESOURCE_CONFLICT_MESSAGE,
     TASK_NOT_FOUND_MESSAGE,
@@ -45,6 +50,16 @@ class TaskService:
 
             raise ConflictException(RESOURCE_CONFLICT_MESSAGE) from exc
 
+    async def _ensure_task_owner(
+        self,
+        task: Task,
+        user_id: int,
+    ) -> None:
+        owner_id = await self.reference_repository.get_project_owner_id(task.project_id)
+
+        if owner_id != user_id:
+            raise NotFoundException(TASK_NOT_FOUND_MESSAGE)
+
     async def _validate_task_references(
         self,
         project_id: int,
@@ -61,35 +76,52 @@ class TaskService:
 
         return owner_id
 
-    async def create_task(self, task_data: TaskCreate) -> Task:
+    async def create_task(
+        self,
+        task_data: TaskCreate,
+        user_id: int,
+    ) -> Task:
         created_by = await self._validate_task_references(
             project_id=task_data.project_id,
             assignee_id=task_data.assignee_id,
         )
 
+        if created_by != user_id:
+            raise ForbiddenException(PROJECT_ACCESS_FORBIDDEN_MESSAGE)
+
         task = Task(
             **task_data.model_dump(),
-            created_by=created_by,
+            created_by=user_id,
         )
 
         await self._execute_write(lambda: self.repository.create(task))
-
         await self.session.refresh(task)
 
         return task
 
     async def get_all_tasks(
         self,
+        user_id: int,
         limit: int,
         offset: int,
     ) -> tuple[list[Task], int]:
-        return await self.repository.get_all(limit, offset)
+        return await self.repository.get_all(
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
+        )
 
-    async def get_task_by_id(self, task_id: int) -> Task:
+    async def get_task_by_id(
+        self,
+        task_id: int,
+        user_id: int,
+    ) -> Task:
         task = await self.repository.get_by_id(task_id)
 
         if task is None:
             raise NotFoundException(TASK_NOT_FOUND_MESSAGE)
+
+        await self._ensure_task_owner(task, user_id)
 
         return task
 
@@ -97,11 +129,14 @@ class TaskService:
         self,
         task_id: int,
         update_data: dict,
+        user_id: int,
     ) -> Task:
         task = await self.repository.get_by_id(task_id)
 
         if task is None:
             raise NotFoundException(TASK_NOT_FOUND_MESSAGE)
+
+        await self._ensure_task_owner(task, user_id)
 
         if "assignee_id" in update_data and update_data["assignee_id"] is not None:
             if not await self.reference_repository.user_exists(
@@ -115,10 +150,16 @@ class TaskService:
 
         return task
 
-    async def delete_task(self, task_id: int) -> None:
+    async def delete_task(
+        self,
+        task_id: int,
+        user_id: int,
+    ) -> None:
         task = await self.repository.get_by_id(task_id)
 
         if task is None:
             raise NotFoundException(TASK_NOT_FOUND_MESSAGE)
+
+        await self._ensure_task_owner(task, user_id)
 
         await self._execute_write(lambda: self.repository.delete(task))

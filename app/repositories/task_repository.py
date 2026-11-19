@@ -1,7 +1,9 @@
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.project import Project
 from app.models.task import Task
+from app.models.workspace import Workspace
 
 
 class TaskRepository:
@@ -16,13 +18,28 @@ class TaskRepository:
 
     async def get_all(
         self,
+        user_id: int,
         limit: int,
         offset: int,
     ) -> tuple[list[Task], int]:
-        count_statement = select(func.count()).select_from(Task)
+        count_statement = (
+            select(func.count(Task.id))
+            .join(Project, Task.project_id == Project.id)
+            .join(Workspace, Project.workspace_id == Workspace.id)
+            .where(Workspace.owner_id == user_id)
+        )
+
         total = await self.session.scalar(count_statement)
 
-        statement = select(Task).order_by(Task.id).limit(limit).offset(offset)
+        statement = (
+            select(Task)
+            .join(Project, Task.project_id == Project.id)
+            .join(Workspace, Project.workspace_id == Workspace.id)
+            .where(Workspace.owner_id == user_id)
+            .order_by(Task.id)
+            .limit(limit)
+            .offset(offset)
+        )
 
         result = await self.session.scalars(statement)
 

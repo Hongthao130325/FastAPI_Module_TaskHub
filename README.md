@@ -1,4 +1,4 @@
-﻿# TaskHub
+# TaskHub
 
 TaskHub là REST API quản lý công việc (Task Management API), được xây dựng bằng FastAPI và PostgreSQL.
 
@@ -55,6 +55,14 @@ Tạo file `.env` từ file mẫu:
 ```powershell
 Copy-Item .env.example .env
 ```
+
+Tạo SECRET_KEY ngẫu nhiên:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Sao chép giá trị được tạo và thay thế placeholder `SECRET_KEY` trong file `.env` bằng giá trị đó trước khi chạy ứng dụng hoặc test.
 
 Cập nhật thông tin database trong `.env`:
 

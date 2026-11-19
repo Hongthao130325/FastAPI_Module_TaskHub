@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import EmailStr, Field
+from pydantic import EmailStr, Field, field_validator
 
 from app.core.constants import (
     USER_EMAIL_MAX_LENGTH,
@@ -9,10 +9,15 @@ from app.core.constants import (
     USER_PASSWORD_MIN_LENGTH,
 )
 from app.models.enums import UserRole
-from app.schemas.base import BaseSchema
+from app.schemas.base import BaseSchema, PasswordSchema
 
 
-class UserRegister(BaseSchema):
+class UserRegister(PasswordSchema):
+    @field_validator("email", "full_name", mode="before")
+    @classmethod
+    def strip_text_fields(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
     email: EmailStr = Field(max_length=USER_EMAIL_MAX_LENGTH)
     full_name: str = Field(min_length=1, max_length=USER_FULL_NAME_MAX_LENGTH)
     password: str = Field(
@@ -30,7 +35,12 @@ class UserRead(BaseSchema):
     created_at: datetime
 
 
-class UserLogin(BaseSchema):
+class UserLogin(PasswordSchema):
+    @field_validator("email", mode="before")
+    @classmethod
+    def strip_email(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
     email: EmailStr = Field(max_length=USER_EMAIL_MAX_LENGTH)
     password: str = Field(
         min_length=USER_PASSWORD_MIN_LENGTH,
@@ -48,7 +58,7 @@ class RefreshRequest(BaseSchema):
     refresh_token: str = Field(min_length=1)
 
 
-class ChangePassword(BaseSchema):
+class ChangePassword(PasswordSchema):
     current_password: str = Field(
         min_length=USER_PASSWORD_MIN_LENGTH,
         max_length=USER_PASSWORD_MAX_LENGTH,

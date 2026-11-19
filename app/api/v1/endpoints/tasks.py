@@ -37,6 +37,13 @@ OffsetQuery = Annotated[
     "",
     response_model=TaskResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Create a task",
+    responses={
+        401: {"description": "Invalid or expired access token."},
+        403: {"description": "No permission to create a task in this project."},
+        404: {"description": "Referenced project or workspace does not exist."},
+        422: {"description": "Request validation error."},
+    },
 )
 async def create_task(
     task_data: TaskCreate,
@@ -57,6 +64,8 @@ async def create_task(
     summary="Get all tasks",
     responses={
         200: {"description": "Tasks retrieved successfully."},
+        401: {"description": "Invalid or expired access token."},
+        403: {"description": "User account is inactive."},
         422: {"description": "Invalid pagination parameters."},
     },
 )
@@ -80,7 +89,17 @@ async def get_all_tasks(
     )
 
 
-@router.get("/{task_id}", response_model=TaskResponse)
+@router.get(
+    "/{task_id}",
+    response_model=TaskResponse,
+    summary="Get a task by ID",
+    responses={
+        401: {"description": "Invalid or expired access token."},
+        403: {"description": "User account is inactive."},
+        404: {"description": "Task not found."},
+        422: {"description": "Invalid task ID."},
+    },
+)
 async def get_task_by_id(
     task_id: int,
     service: TaskServiceDep,
@@ -94,7 +113,17 @@ async def get_task_by_id(
     return TaskResponse.model_validate(task)
 
 
-@router.patch("/{task_id}", response_model=TaskResponse)
+@router.patch(
+    "/{task_id}",
+    response_model=TaskResponse,
+    summary="Update a task",
+    responses={
+        401: {"description": "Invalid or expired access token."},
+        403: {"description": "User account is inactive."},
+        404: {"description": "Task not found."},
+        422: {"description": "Request validation error."},
+    },
+)
 async def update_task(
     task_id: int,
     task_data: TaskUpdate,
@@ -113,6 +142,13 @@ async def update_task(
 @router.delete(
     "/{task_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a task",
+    responses={
+        401: {"description": "Invalid or expired access token."},
+        403: {"description": "User account is inactive."},
+        404: {"description": "Task not found."},
+        422: {"description": "Invalid task ID."},
+    },
 )
 async def delete_task(
     task_id: int,

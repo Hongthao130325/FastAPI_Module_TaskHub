@@ -1,9 +1,41 @@
-from httpx import AsyncClient
+from datetime import UTC, datetime, timedelta
+
+from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import decode_refresh_token, verify_password
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
+
+
+async def register_and_login(
+    client: AsyncClient,
+    email: str,
+    password: str = "StrongPass123",
+    full_name: str = "Test User",
+) -> tuple[Response, Response]:
+    register_response = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "full_name": full_name,
+            "password": password,
+        },
+    )
+
+    assert register_response.status_code == 201
+
+    login_response = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": email,
+            "password": password,
+        },
+    )
+
+    assert login_response.status_code == 200
+
+    return register_response, login_response
 
 
 async def test_register_success(
@@ -139,6 +171,34 @@ async def test_login_success(
     assert refresh_token.expires_at.timestamp() == payload["exp"]
 
 
+async def test_password_preserves_leading_and_trailing_whitespace(
+    async_client: AsyncClient,
+):
+    credentials = {
+        "email": "whitespace-password@example.com",
+        "password": " StrongPass123 ",
+    }
+
+    register_response = await async_client.post(
+        "/api/v1/auth/register",
+        json={
+            **credentials,
+            "full_name": "Whitespace Password",
+        },
+    )
+
+    assert register_response.status_code == 201
+
+    login_response = await async_client.post(
+        "/api/v1/auth/login",
+        json=credentials,
+    )
+
+    assert login_response.status_code == 200
+    assert login_response.json()["access_token"]
+    assert login_response.json()["refresh_token"]
+
+
 async def test_login_with_unknown_email(async_client: AsyncClient):
     response = await async_client.post(
         "/api/v1/auth/login",
@@ -268,6 +328,33 @@ async def test_refresh_success(
     assert new_record.revoked_at is None
     assert new_record.user_id == old_record.user_id
     assert new_record.session_id == old_record.session_id
+
+
+async def test_refresh_rejects_expired_database_record(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+):
+    _, login_response = await register_and_login(
+        async_client,
+        "refresh-expired-record@example.com",
+    )
+
+    refresh_token = login_response.json()["refresh_token"]
+    payload = decode_refresh_token(refresh_token)
+
+    token_record = await db_session.get(RefreshToken, payload["jti"])
+
+    assert token_record is not None
+
+    token_record.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    await db_session.commit()
+
+    response = await async_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+
+    assert response.status_code == 401
 
 
 async def test_refresh_rejects_reused_token(
@@ -502,6 +589,45 @@ async def test_logout_revokes_only_current_session(
     assert first_refresh_response.status_code == 401
 
 
+async def test_access_token_rejects_inactive_user(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+):
+    credentials = {
+        "email": "inactive-access@example.com",
+        "password": "StrongPass123",
+    }
+
+    register_response = await async_client.post(
+        "/api/v1/auth/register",
+        json={
+            **credentials,
+            "full_name": "Inactive Access",
+        },
+    )
+
+    login_response = await async_client.post(
+        "/api/v1/auth/login",
+        json=credentials,
+    )
+
+    user = await db_session.get(User, register_response.json()["id"])
+    assert user is not None
+
+    user.is_active = False
+    await db_session.flush()
+
+    response = await async_client.post(
+        "/api/v1/auth/logout",
+        headers={
+            "Authorization": f"Bearer {login_response.json()['access_token']}",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "User account is inactive"
+
+
 async def test_logout_requires_access_token(async_client: AsyncClient):
     response = await async_client.post("/api/v1/auth/logout")
 
@@ -684,7 +810,7 @@ async def test_change_password_with_wrong_current_password(
         },
     )
 
-    assert response.status_code == 401
+    assert response.status_code == 400
     assert response.json()["detail"] == "Current password is incorrect"
 
 

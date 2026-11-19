@@ -1,4 +1,4 @@
-﻿# TaskHub
+# TaskHub
 
 TaskHub là REST API quản lý công việc (Task Management API), được xây dựng bằng FastAPI và PostgreSQL.
 
@@ -165,3 +165,19 @@ Kiểm tra migration hiện tại:
 ```powershell
 python -m alembic current
 ```
+
+## Authentication & Session Security
+
+- Access tokens are short-lived and must be sent using the Bearer authentication scheme.
+- Refresh tokens are single-use. A successful refresh invalidates the previous token and issues a replacement.
+- Reusing a revoked refresh token is treated as token replay. The server revokes the entire associated session.
+- Clients must serialize refresh requests and avoid sending concurrent requests with the same refresh token.
+- Logging out revokes the current session. Changing the password revokes all active refresh-token sessions for the user.
+
+
+## Task Access Control
+
+- Task access is restricted to the owner of the Workspace containing the Task.
+- Assigning a Task to a user does not grant that user permission to view, update, or delete the Task.
+- Only the Workspace owner can create, view, update, and delete Tasks within that Workspace.
+- Users who do not own the Workspace receive a 404 response when accessing its Tasks to avoid exposing resource existence.

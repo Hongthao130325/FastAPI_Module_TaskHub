@@ -10,9 +10,9 @@ from app.core.exceptions import (
     NotFoundException,
 )
 from app.core.messages import (
+    PROJECT_ACCESS_FORBIDDEN_MESSAGE,
     PROJECT_NOT_FOUND_MESSAGE,
     RESOURCE_CONFLICT_MESSAGE,
-    TASK_ACCESS_FORBIDDEN_MESSAGE,
     TASK_NOT_FOUND_MESSAGE,
     USER_NOT_FOUND_MESSAGE,
 )
@@ -50,28 +50,15 @@ class TaskService:
 
             raise ConflictException(RESOURCE_CONFLICT_MESSAGE) from exc
 
-    async def _ensure_project_owner(
-        self,
-        project_id: int,
-        user_id: int,
-    ) -> None:
-        owner_id = await self.reference_repository.get_project_owner_id(project_id)
-
-        if owner_id is None:
-            raise NotFoundException(PROJECT_NOT_FOUND_MESSAGE)
-
-        if owner_id != user_id:
-            raise ForbiddenException(TASK_ACCESS_FORBIDDEN_MESSAGE)
-
     async def _ensure_task_owner(
         self,
         task: Task,
         user_id: int,
     ) -> None:
-        await self._ensure_project_owner(
-            project_id=task.project_id,
-            user_id=user_id,
-        )
+        owner_id = await self.reference_repository.get_project_owner_id(task.project_id)
+
+        if owner_id != user_id:
+            raise NotFoundException(TASK_NOT_FOUND_MESSAGE)
 
     async def _validate_task_references(
         self,
@@ -100,7 +87,7 @@ class TaskService:
         )
 
         if created_by != user_id:
-            raise ForbiddenException(TASK_ACCESS_FORBIDDEN_MESSAGE)
+            raise ForbiddenException(PROJECT_ACCESS_FORBIDDEN_MESSAGE)
 
         task = Task(
             **task_data.model_dump(),

@@ -1,7 +1,7 @@
 import os
 import subprocess
 import sys
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -167,39 +167,62 @@ async def async_client(
 
 
 @pytest_asyncio.fixture
-async def task_context(
+async def user_context_factory(
     db_session: AsyncSession,
+) -> Callable[[str, str, str, str], Awaitable[dict[str, int]]]:
+    async def create_user_context(
+        email: str,
+        full_name: str,
+        workspace_name: str,
+        project_name: str,
+    ) -> dict[str, int]:
+        user = User(
+            email=email,
+            full_name=full_name,
+            hashed_password="test-hash",
+        )
+
+        db_session.add(user)
+        await db_session.flush()
+
+        workspace = Workspace(
+            name=workspace_name,
+            owner_id=user.id,
+        )
+
+        db_session.add(workspace)
+        await db_session.flush()
+
+        project = Project(
+            workspace_id=workspace.id,
+            name=project_name,
+        )
+
+        db_session.add(project)
+        await db_session.flush()
+
+        return {
+            "user_id": user.id,
+            "workspace_id": workspace.id,
+            "project_id": project.id,
+        }
+
+    return create_user_context
+
+
+@pytest_asyncio.fixture
+async def task_context(
+    user_context_factory: Callable[
+        [str, str, str, str],
+        Awaitable[dict[str, int]],
+    ],
 ) -> dict[str, int]:
-    user = User(
-        email="task-test@example.com",
-        full_name="Task Test User",
-        hashed_password="test-hash",
+    return await user_context_factory(
+        "task-test@example.com",
+        "Task Test User",
+        "Task Test Workspace",
+        "Task Test Project",
     )
-
-    db_session.add(user)
-    await db_session.flush()
-
-    workspace = Workspace(
-        name="Task Test Workspace",
-        owner_id=user.id,
-    )
-
-    db_session.add(workspace)
-    await db_session.flush()
-
-    project = Project(
-        workspace_id=workspace.id,
-        name="Task Test Project",
-    )
-
-    db_session.add(project)
-    await db_session.flush()
-
-    return {
-        "user_id": user.id,
-        "workspace_id": workspace.id,
-        "project_id": project.id,
-    }
 
 
 @pytest_asyncio.fixture
@@ -220,38 +243,17 @@ async def authenticated_client(
 
 @pytest_asyncio.fixture
 async def another_user_context(
-    db_session: AsyncSession,
+    user_context_factory: Callable[
+        [str, str, str, str],
+        Awaitable[dict[str, int]],
+    ],
 ) -> dict[str, int]:
-    user = User(
-        email="another-task-test@example.com",
-        full_name="Another Task Test User",
-        hashed_password="test-hash",
+    return await user_context_factory(
+        "another-task-test@example.com",
+        "Another Task Test User",
+        "Another Task Test Workspace",
+        "Another Task Test Project",
     )
-
-    db_session.add(user)
-    await db_session.flush()
-
-    workspace = Workspace(
-        name="Another Task Test Workspace",
-        owner_id=user.id,
-    )
-
-    db_session.add(workspace)
-    await db_session.flush()
-
-    project = Project(
-        workspace_id=workspace.id,
-        name="Another Task Test Project",
-    )
-
-    db_session.add(project)
-    await db_session.flush()
-
-    return {
-        "user_id": user.id,
-        "workspace_id": workspace.id,
-        "project_id": project.id,
-    }
 
 
 @pytest_asyncio.fixture

@@ -4,6 +4,7 @@ from uuid import uuid4
 import jwt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.core.exceptions import (
     BadRequestException,
@@ -19,8 +20,9 @@ from app.core.messages import (
     NEW_PASSWORD_SAME_AS_CURRENT_MESSAGE,
 )
 from app.core.security import (
+    DUMMY_HASH,
     create_access_token,
-    create_refresh_token,
+    create_refresh_token_with_metadata,
     decode_refresh_token,
     hash_password,
     verify_password,
@@ -39,7 +41,7 @@ from app.schemas.user import (
 )
 
 
-class UserService:
+class AuthService:
     def __init__(
         self,
         session: AsyncSession,
@@ -50,11 +52,37 @@ class UserService:
         self.repository = repository
         self.refresh_token_repository = refresh_token_repository
 
+    def _issue_token_pair(
+        self,
+        user_id: int,
+        session_id: str,
+    ) -> tuple[TokenResponse, RefreshToken]:
+        access_token = create_access_token(user_id, session_id)
+        refresh_token, jti, expires_at = create_refresh_token_with_metadata(
+            user_id,
+            session_id,
+        )
+
+        token_record = RefreshToken(
+            jti=jti,
+            user_id=user_id,
+            session_id=session_id,
+            expires_at=expires_at,
+        )
+
+        return (
+            TokenResponse(
+                access_token=access_token,
+                refresh_token=refresh_token,
+            ),
+            token_record,
+        )
+
     async def register(self, user_data: UserRegister) -> User:
         user = User(
             email=str(user_data.email).lower(),
             full_name=user_data.full_name,
-            hashed_password=hash_password(user_data.password),
+            hashed_password=await run_in_threadpool(hash_password, user_data.password),
             role=UserRole.MEMBER,
         )
 
@@ -74,36 +102,29 @@ class UserService:
     async def login(self, login_data: UserLogin) -> TokenResponse:
         user = await self.repository.get_by_email(str(login_data.email).lower())
 
-        if user is None or not verify_password(
+        hashed_password = user.hashed_password if user is not None else DUMMY_HASH
+        password_valid = await run_in_threadpool(
+            verify_password,
             login_data.password,
-            user.hashed_password,
-        ):
+            hashed_password,
+        )
+
+        if user is None or not password_valid:
             raise UnauthorizedException(INVALID_CREDENTIALS_MESSAGE)
 
         if not user.is_active:
             raise ForbiddenException(INACTIVE_USER_MESSAGE)
 
         session_id = str(uuid4())
-
-        access_token = create_access_token(user.id, session_id)
-        refresh_token = create_refresh_token(user.id, session_id)
-
-        payload = decode_refresh_token(refresh_token)
-
-        refresh_token_record = RefreshToken(
-            jti=payload["jti"],
-            user_id=user.id,
-            session_id=session_id,
-            expires_at=datetime.fromtimestamp(payload["exp"], UTC),
+        token_response, token_record = self._issue_token_pair(
+            user.id,
+            session_id,
         )
 
-        await self.refresh_token_repository.create(refresh_token_record)
+        await self.refresh_token_repository.create(token_record)
         await self.session.commit()
 
-        return TokenResponse(
-            access_token=access_token,
-            refresh_token=refresh_token,
-        )
+        return token_response
 
     async def refresh(
         self,
@@ -150,25 +171,17 @@ class UserService:
 
             raise ForbiddenException(INACTIVE_USER_MESSAGE)
 
-        new_access_token = create_access_token(user.id, token_record.session_id)
-        new_refresh_token = create_refresh_token(user.id, token_record.session_id)
-
-        new_payload = decode_refresh_token(new_refresh_token)
-
-        new_token_record = RefreshToken(
-            jti=new_payload["jti"],
-            user_id=user.id,
-            session_id=token_record.session_id,
-            expires_at=datetime.fromtimestamp(new_payload["exp"], UTC),
+        token_response, new_token_record = self._issue_token_pair(
+            user.id,
+            token_record.session_id,
         )
 
         consumed = await self.refresh_token_repository.consume(
             jti=token_record.jti,
             user_id=user.id,
             session_id=token_record.session_id,
-            replaced_by_jti=new_payload["jti"],
+            replaced_by_jti=new_token_record.jti,
         )
-
         if not consumed:
             current_record = await self.refresh_token_repository.get_by_jti(
                 token_record.jti,
@@ -188,42 +201,38 @@ class UserService:
         await self.refresh_token_repository.create(new_token_record)
         await self.session.commit()
 
-        return TokenResponse(
-            access_token=new_access_token,
-            refresh_token=new_refresh_token,
-        )
+        return token_response
 
     async def change_password(
         self,
-        user_id: int,
+        user: User,
         password_data: ChangePassword,
     ) -> None:
-        user = await self.repository.get_by_id(user_id)
-
-        if user is None:
-            raise UnauthorizedException(INVALID_CREDENTIALS_MESSAGE)
-
-        if not verify_password(
+        password_valid = await run_in_threadpool(
+            verify_password,
             password_data.current_password,
             user.hashed_password,
-        ):
-            raise UnauthorizedException(INVALID_CURRENT_PASSWORD_MESSAGE)
+        )
 
+        if not password_valid:
+            raise BadRequestException(INVALID_CURRENT_PASSWORD_MESSAGE)
         if password_data.current_password == password_data.new_password:
             raise BadRequestException(NEW_PASSWORD_SAME_AS_CURRENT_MESSAGE)
 
-        user.hashed_password = hash_password(password_data.new_password)
+        user.hashed_password = await run_in_threadpool(
+            hash_password, password_data.new_password
+        )
 
-        await self.refresh_token_repository.revoke_all_for_user(user_id)
+        await self.refresh_token_repository.revoke_all_for_user(user.id)
         await self.session.commit()
 
     async def logout(
         self,
-        user_id: int,
+        user: User,
         session_id: str,
     ) -> None:
         await self.refresh_token_repository.revoke_session(
-            user_id=user_id,
+            user_id=user.id,
             session_id=session_id,
         )
 

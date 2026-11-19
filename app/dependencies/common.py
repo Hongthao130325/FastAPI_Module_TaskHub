@@ -9,8 +9,8 @@ from app.repositories.reference_repository import ReferenceRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.user_repository import UserRepository
+from app.services.auth_service import AuthService
 from app.services.task_service import TaskService
-from app.services.user_service import UserService
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -31,13 +31,13 @@ def get_task_service(
     )
 
 
-def get_user_service(
+def get_auth_service(
     session: Annotated[AsyncSession, Depends(get_db)],
-) -> UserService:
+) -> AuthService:
     user_repository = UserRepository(session)
     refresh_token_repository = RefreshTokenRepository(session)
 
-    return UserService(
+    return AuthService(
         session=session,
         repository=user_repository,
         refresh_token_repository=refresh_token_repository,

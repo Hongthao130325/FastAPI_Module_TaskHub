@@ -517,6 +517,75 @@ async def test_create_task_requires_authentication(
     assert response.status_code == 401
 
 
+async def test_get_task_requires_authentication(
+    authenticated_client: AsyncClient,
+    async_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    create_response = await authenticated_client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": task_context["project_id"],
+            "title": "Unauthenticated Access Task",
+        },
+    )
+    assert create_response.status_code == 201
+
+    task_id = create_response.json()["id"]
+    async_client.headers.pop("Authorization", None)
+
+    response = await async_client.get(f"/api/v1/tasks/{task_id}")
+
+    assert response.status_code == 401
+
+
+async def test_update_task_requires_authentication(
+    authenticated_client: AsyncClient,
+    async_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    create_response = await authenticated_client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": task_context["project_id"],
+            "title": "Unauthenticated Update Task",
+        },
+    )
+    assert create_response.status_code == 201
+
+    task_id = create_response.json()["id"]
+    async_client.headers.pop("Authorization", None)
+
+    response = await async_client.patch(
+        f"/api/v1/tasks/{task_id}",
+        json={"title": "Unauthorized Update"},
+    )
+
+    assert response.status_code == 401
+
+
+async def test_delete_task_requires_authentication(
+    authenticated_client: AsyncClient,
+    async_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    create_response = await authenticated_client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": task_context["project_id"],
+            "title": "Unauthenticated Delete Task",
+        },
+    )
+    assert create_response.status_code == 201
+
+    task_id = create_response.json()["id"]
+    async_client.headers.pop("Authorization", None)
+
+    response = await async_client.delete(f"/api/v1/tasks/{task_id}")
+
+    assert response.status_code == 401
+
+
 async def test_create_task_forbidden_for_another_users_project(
     authenticated_client: AsyncClient,
     another_user_context: dict[str, int],
@@ -531,11 +600,11 @@ async def test_create_task_forbidden_for_another_users_project(
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "You do not have permission to access this task"
+        "You do not have permission to create a task in this project"
     )
 
 
-async def test_get_task_forbidden_for_another_user(
+async def test_get_task_returns_not_found_for_another_user(
     authenticated_client: AsyncClient,
     async_client: AsyncClient,
     task_context: dict[str, int],
@@ -556,10 +625,10 @@ async def test_get_task_forbidden_for_another_user(
 
     response = await async_client.get(f"/api/v1/tasks/{task_id}")
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
-async def test_update_task_forbidden_for_another_user(
+async def test_update_task_returns_not_found_for_another_user(
     authenticated_client: AsyncClient,
     async_client: AsyncClient,
     task_context: dict[str, int],
@@ -583,10 +652,10 @@ async def test_update_task_forbidden_for_another_user(
         json={"title": "Unauthorized Update"},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
-async def test_delete_task_forbidden_for_another_user(
+async def test_delete_task_returns_not_found_for_another_user(
     authenticated_client: AsyncClient,
     async_client: AsyncClient,
     task_context: dict[str, int],
@@ -607,7 +676,7 @@ async def test_delete_task_forbidden_for_another_user(
 
     response = await async_client.delete(f"/api/v1/tasks/{task_id}")
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 async def test_get_all_tasks_only_returns_current_users_tasks(

@@ -486,3 +486,128 @@ async def test_admin_can_manage_workspace_without_membership(
     )
 
     assert delete_response.status_code == 204
+
+
+async def test_owner_can_update_member_role_to_editor(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+    another_user_context: dict[str, int],
+):
+    workspace_id = task_context["workspace_id"]
+
+    user_id = another_user_context["user_id"]
+
+    add_response = await authenticated_client.post(
+        f"/api/v1/workspaces/{workspace_id}/members",
+        json={
+            "email": "another-task-test@example.com",
+            "role": "VIEWER",
+        },
+    )
+
+    assert add_response.status_code == 201
+    assert add_response.json()["user_id"] == user_id
+
+    response = await authenticated_client.patch(
+        f"/api/v1/workspaces/{workspace_id}/members/{user_id}",
+        json={"role": "EDITOR"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user_id"] == user_id
+    assert response.json()["role"] == "EDITOR"
+
+
+async def test_owner_can_update_member_role_to_viewer(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+    another_user_context: dict[str, int],
+):
+    workspace_id = task_context["workspace_id"]
+
+    user_id = another_user_context["user_id"]
+
+    add_response = await authenticated_client.post(
+        f"/api/v1/workspaces/{workspace_id}/members",
+        json={
+            "email": "another-task-test@example.com",
+            "role": "EDITOR",
+        },
+    )
+
+    assert add_response.status_code == 201
+    assert add_response.json()["user_id"] == user_id
+
+    response = await authenticated_client.patch(
+        f"/api/v1/workspaces/{workspace_id}/members/{user_id}",
+        json={"role": "VIEWER"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["role"] == "VIEWER"
+
+
+async def test_member_cannot_update_workspace_member_role(
+    authenticated_client: AsyncClient,
+    async_client: AsyncClient,
+    task_context: dict[str, int],
+    another_user_token: str,
+):
+    workspace_id = task_context["workspace_id"]
+
+    add_response = await authenticated_client.post(
+        f"/api/v1/workspaces/{workspace_id}/members",
+        json={
+            "email": "another-task-test@example.com",
+            "role": "EDITOR",
+        },
+    )
+
+    assert add_response.status_code == 201
+    user_id = add_response.json()["user_id"]
+
+    async_client.headers["Authorization"] = f"Bearer {another_user_token}"
+
+    response = await async_client.patch(
+        f"/api/v1/workspaces/{workspace_id}/members/{user_id}",
+        json={"role": "VIEWER"},
+    )
+
+    assert response.status_code == 403
+
+
+async def test_owner_cannot_update_own_workspace_role(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    response = await authenticated_client.patch(
+        f"/api/v1/workspaces/{task_context['workspace_id']}/members/"
+        f"{task_context['user_id']}",
+        json={"role": "EDITOR"},
+    )
+
+    assert response.status_code == 400
+
+
+async def test_owner_cannot_assign_owner_role_to_member(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    response = await authenticated_client.patch(
+        f"/api/v1/workspaces/{task_context['workspace_id']}/members/999999",
+        json={"role": "OWNER"},
+    )
+
+    assert response.status_code == 422
+
+
+async def test_owner_cannot_update_nonexistent_member_role(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    response = await authenticated_client.patch(
+        f"/api/v1/workspaces/{task_context['workspace_id']}/members/999999",
+        json={"role": "EDITOR"},
+    )
+
+    assert response.status_code == 404

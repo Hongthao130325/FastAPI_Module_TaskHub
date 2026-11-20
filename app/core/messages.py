@@ -30,6 +30,9 @@ WORKSPACE_OWNER_REQUIRED_MESSAGE = "Only the workspace owner can perform this ac
 WORKSPACE_NAME_EMPTY_MESSAGE = "Workspace name cannot be empty"
 WORKSPACE_UPDATE_EMPTY_MESSAGE = "At least one field must be provided"
 WORKSPACE_OWNER_CANNOT_BE_REMOVED_MESSAGE = "The workspace owner cannot be removed"
+WORKSPACE_OWNER_ROLE_CANNOT_BE_CHANGED_MESSAGE = (
+    "The workspace owner role cannot be changed"
+)
 WORKSPACE_MEMBER_NOT_FOUND_MESSAGE = "Workspace member not found"
 WORKSPACE_MEMBER_ALREADY_EXISTS_MESSAGE = "User is already a member of this workspace"
 WORKSPACE_INVITATION_USER_NOT_FOUND_MESSAGE = "User with this email does not exist"

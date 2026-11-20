@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.enums import WorkspaceRole
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
@@ -18,6 +19,16 @@ class WorkspaceRepository:
 
     async def get_by_id(self, workspace_id: int) -> Workspace | None:
         return await self.session.get(Workspace, workspace_id)
+
+    async def get_by_id_for_update(
+        self,
+        workspace_id: int,
+    ) -> Workspace | None:
+        statement = (
+            select(Workspace).where(Workspace.id == workspace_id).with_for_update()
+        )
+
+        return await self.session.scalar(statement)
 
     async def get_all(self) -> list[Workspace]:
         statement = select(Workspace).order_by(Workspace.id)
@@ -92,3 +103,13 @@ class WorkspaceRepository:
     async def remove_member(self, membership: WorkspaceMember) -> None:
         await self.session.delete(membership)
         await self.session.flush()
+
+    async def update_member_role(
+        self,
+        membership: WorkspaceMember,
+        role: WorkspaceRole,
+    ) -> WorkspaceMember:
+        membership.role = role
+        await self.session.flush()
+
+        return membership

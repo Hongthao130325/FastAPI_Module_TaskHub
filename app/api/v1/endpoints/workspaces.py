@@ -10,6 +10,7 @@ from app.schemas.workspace import (
     WorkspaceMemberCreate,
     WorkspaceMemberListResponse,
     WorkspaceMemberResponse,
+    WorkspaceMemberUpdate,
     WorkspaceResponse,
     WorkspaceUpdate,
 )
@@ -179,4 +180,31 @@ async def remove_workspace_member(
         workspace_id,
         user_id,
         current_user.user,
+    )
+
+
+@router.patch(
+    "/{workspace_id}/members/{user_id}",
+    response_model=WorkspaceMemberResponse,
+    summary="Update a workspace member role",
+)
+async def update_workspace_member_role(
+    workspace_id: int,
+    user_id: int,
+    member_data: WorkspaceMemberUpdate,
+    service: WorkspaceServiceDep,
+    current_user: CurrentUserDep,
+) -> WorkspaceMemberResponse:
+    membership, member_user = await service.update_workspace_member_role(
+        workspace_id,
+        user_id,
+        member_data.role,
+        current_user.user,
+    )
+
+    return WorkspaceMemberResponse(
+        user_id=member_user.id,
+        email=member_user.email,
+        full_name=member_user.full_name,
+        role=membership.role,
     )

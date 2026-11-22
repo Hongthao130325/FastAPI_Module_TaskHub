@@ -20,7 +20,6 @@ class WorkspaceRepository:
     async def get_by_id(self, workspace_id: int) -> Workspace | None:
         return await self.session.get(Workspace, workspace_id)
 
-
     async def get_by_id_for_update(
         self,
         workspace_id: int,
@@ -39,17 +38,11 @@ class WorkspaceRepository:
         count_statement = select(func.count(Workspace.id))
         total = await self.session.scalar(count_statement)
 
-        statement = (
-            select(Workspace)
-            .order_by(Workspace.id)
-            .limit(limit)
-            .offset(offset)
-        )
+        statement = select(Workspace).order_by(Workspace.id).limit(limit).offset(offset)
         result = await self.session.scalars(statement)
 
         return list(result.all()), total or 0
 
-      
     async def get_all_for_user(
         self,
         user_id: int,

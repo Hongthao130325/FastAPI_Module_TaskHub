@@ -19,6 +19,7 @@ from app.core.messages import (
     WORKSPACE_NOT_FOUND_MESSAGE,
     WORKSPACE_OWNER_CANNOT_BE_REMOVED_MESSAGE,
     WORKSPACE_OWNER_REQUIRED_MESSAGE,
+    WORKSPACE_OWNER_ROLE_CANNOT_BE_CHANGED_MESSAGE,
     WORKSPACE_UPDATE_EMPTY_MESSAGE,
 )
 from app.core.permissions import has_workspace_role
@@ -58,6 +59,11 @@ class WorkspaceService:
 
             raise ConflictException(RESOURCE_CONFLICT_MESSAGE) from exc
 
+        except Exception:
+            await self.session.rollback()
+
+            raise
+
     async def _get_workspace(self, workspace_id: int) -> Workspace:
         workspace = await self.repository.get_by_id(workspace_id)
 
@@ -94,6 +100,29 @@ class WorkspaceService:
             return workspace
 
         if workspace.owner_id != user.id:
+            raise ForbiddenException(WORKSPACE_OWNER_REQUIRED_MESSAGE)
+
+        return workspace
+
+    async def _ensure_workspace_owner_for_update(
+        self,
+        workspace_id: int,
+        user: User,
+    ) -> Workspace:
+        workspace = await self.repository.get_by_id_for_update(workspace_id)
+
+        if workspace is None:
+            raise NotFoundException(WORKSPACE_NOT_FOUND_MESSAGE)
+
+        membership = await self.repository.get_membership(
+            workspace_id,
+            user.id,
+        )
+
+        if not has_workspace_role(user, membership, {WorkspaceRole.OWNER}):
+            raise ForbiddenException(WORKSPACE_ACCESS_FORBIDDEN_MESSAGE)
+
+        if user.role != UserRole.ADMIN and workspace.owner_id != user.id:
             raise ForbiddenException(WORKSPACE_OWNER_REQUIRED_MESSAGE)
 
         return workspace
@@ -207,7 +236,10 @@ class WorkspaceService:
         role: WorkspaceRole,
         current_user: User,
     ) -> tuple[WorkspaceMember, User]:
-        await self._ensure_workspace_owner(workspace_id, current_user)
+        await self._ensure_workspace_owner_for_update(
+            workspace_id,
+            current_user,
+        )
 
         member_user = await self.user_repository.get_by_email(email.lower())
 
@@ -238,7 +270,7 @@ class WorkspaceService:
         user_id: int,
         current_user: User,
     ) -> None:
-        workspace = await self._ensure_workspace_owner(
+        workspace = await self._ensure_workspace_owner_for_update(
             workspace_id,
             current_user,
         )
@@ -255,3 +287,37 @@ class WorkspaceService:
             raise NotFoundException(WORKSPACE_MEMBER_NOT_FOUND_MESSAGE)
 
         await self._execute_write(lambda: self.repository.remove_member(membership))
+
+    async def update_workspace_member_role(
+        self,
+        workspace_id: int,
+        user_id: int,
+        role: WorkspaceRole,
+        current_user: User,
+    ) -> tuple[WorkspaceMember, User]:
+        workspace = await self._ensure_workspace_owner_for_update(
+            workspace_id,
+            current_user,
+        )
+
+        if user_id == workspace.owner_id:
+            raise BadRequestException(WORKSPACE_OWNER_ROLE_CANNOT_BE_CHANGED_MESSAGE)
+
+        membership = await self.repository.get_membership(
+            workspace_id,
+            user_id,
+        )
+
+        if membership is None:
+            raise NotFoundException(WORKSPACE_MEMBER_NOT_FOUND_MESSAGE)
+
+        await self._execute_write(
+            lambda: self.repository.update_member_role(membership, role)
+        )
+
+        member_user = await self.user_repository.get_by_id(user_id)
+
+        if member_user is None:
+            raise NotFoundException(WORKSPACE_MEMBER_NOT_FOUND_MESSAGE)
+
+        return membership, member_user

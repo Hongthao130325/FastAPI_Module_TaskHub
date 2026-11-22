@@ -90,3 +90,15 @@ class WorkspaceMemberResponse(BaseSchema):
 
 class WorkspaceMemberListResponse(BaseSchema):
     items: list[WorkspaceMemberResponse]
+
+
+class WorkspaceMemberUpdate(BaseSchema):
+    role: WorkspaceRole
+
+    @field_validator("role")
+    @classmethod
+    def reject_owner_role(cls, value: WorkspaceRole) -> WorkspaceRole:
+        if value == WorkspaceRole.OWNER:
+            raise ValueError("Cannot assign OWNER role to a workspace member.")
+
+        return value

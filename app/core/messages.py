@@ -1,5 +1,6 @@
 TASK_NOT_FOUND_MESSAGE = "Task not found"
 PROJECT_NOT_FOUND_MESSAGE = "Project not found"
+PROJECT_UPDATE_EMPTY_MESSAGE = "At least one field must be provided"
 PROJECT_ACCESS_FORBIDDEN_MESSAGE = (
     "You do not have permission to create a task in this project"
 )

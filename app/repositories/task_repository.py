@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.project import Project
 from app.models.task import Task
 from app.models.workspace import Workspace
+from app.models.workspace_member import WorkspaceMember
 
 
 class TaskRepository:
@@ -19,6 +20,7 @@ class TaskRepository:
     async def get_all(
         self,
         user_id: int,
+        is_admin: bool,
         limit: int,
         offset: int,
     ) -> tuple[list[Task], int]:
@@ -26,20 +28,28 @@ class TaskRepository:
             select(func.count(Task.id))
             .join(Project, Task.project_id == Project.id)
             .join(Workspace, Project.workspace_id == Workspace.id)
-            .where(Workspace.owner_id == user_id)
         )
-
-        total = await self.session.scalar(count_statement)
 
         statement = (
             select(Task)
             .join(Project, Task.project_id == Project.id)
             .join(Workspace, Project.workspace_id == Workspace.id)
-            .where(Workspace.owner_id == user_id)
-            .order_by(Task.id)
-            .limit(limit)
-            .offset(offset)
         )
+
+        if not is_admin:
+            count_statement = count_statement.join(
+                WorkspaceMember,
+                WorkspaceMember.workspace_id == Workspace.id,
+            ).where(WorkspaceMember.user_id == user_id)
+
+            statement = statement.join(
+                WorkspaceMember,
+                WorkspaceMember.workspace_id == Workspace.id,
+            ).where(WorkspaceMember.user_id == user_id)
+
+        total = await self.session.scalar(count_statement)
+
+        statement = statement.order_by(Task.id).limit(limit).offset(offset)
 
         result = await self.session.scalars(statement)
 

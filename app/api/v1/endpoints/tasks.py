@@ -52,7 +52,7 @@ async def create_task(
 ) -> TaskResponse:
     task = await service.create_task(
         task_data,
-        current_user.user.id,
+        current_user.user,
     )
 
     return TaskResponse.model_validate(task)
@@ -76,7 +76,7 @@ async def get_all_tasks(
     offset: OffsetQuery = DEFAULT_OFFSET,
 ) -> TaskListResponse:
     tasks, total = await service.get_all_tasks(
-        user_id=current_user.user.id,
+        user=current_user.user,
         limit=limit,
         offset=offset,
     )
@@ -107,7 +107,7 @@ async def get_task_by_id(
 ) -> TaskResponse:
     task = await service.get_task_by_id(
         task_id,
-        current_user.user.id,
+        current_user.user,
     )
 
     return TaskResponse.model_validate(task)
@@ -133,7 +133,7 @@ async def update_task(
     task = await service.update_task(
         task_id,
         task_data.model_dump(exclude_unset=True),
-        current_user.user.id,
+        current_user.user,
     )
 
     return TaskResponse.model_validate(task)
@@ -157,5 +157,5 @@ async def delete_task(
 ) -> None:
     await service.delete_task(
         task_id,
-        current_user.user.id,
+        current_user.user,
     )

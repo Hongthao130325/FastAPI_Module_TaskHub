@@ -20,7 +20,6 @@ from app.core.messages import (
     WORKSPACE_OWNER_CANNOT_BE_REMOVED_MESSAGE,
     WORKSPACE_OWNER_REQUIRED_MESSAGE,
     WORKSPACE_OWNER_ROLE_CANNOT_BE_CHANGED_MESSAGE,
-    WORKSPACE_OWNER_ROLE_NOT_ALLOWED_MESSAGE,
     WORKSPACE_UPDATE_EMPTY_MESSAGE,
 )
 from app.core.permissions import has_workspace_role
@@ -95,13 +94,12 @@ class WorkspaceService:
         workspace_id: int,
         user: User,
     ) -> Workspace:
-        workspace = await self._ensure_workspace_access(
-            workspace_id,
-            user,
-            {WorkspaceRole.OWNER},
-        )
+        workspace = await self._get_workspace(workspace_id)
 
-        if user.role != UserRole.ADMIN and workspace.owner_id != user.id:
+        if user.role == UserRole.ADMIN:
+            return workspace
+
+        if workspace.owner_id != user.id:
             raise ForbiddenException(WORKSPACE_OWNER_REQUIRED_MESSAGE)
 
         return workspace
@@ -157,11 +155,20 @@ class WorkspaceService:
 
         return workspace
 
-    async def get_all_workspaces(self, user: User) -> list[Workspace]:
+    async def get_all_workspaces(
+        self,
+        user: User,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Workspace], int]:
         if user.role == UserRole.ADMIN:
-            return await self.repository.get_all()
+            return await self.repository.get_all(limit, offset)
 
-        return await self.repository.get_all_for_user(user.id)
+        return await self.repository.get_all_for_user(
+            user.id,
+            limit,
+            offset,
+        )
 
     async def get_workspace_by_id(
         self,
@@ -233,9 +240,6 @@ class WorkspaceService:
             workspace_id,
             current_user,
         )
-
-        if role == WorkspaceRole.OWNER:
-            raise BadRequestException(WORKSPACE_OWNER_ROLE_NOT_ALLOWED_MESSAGE)
 
         member_user = await self.user_repository.get_by_email(email.lower())
 

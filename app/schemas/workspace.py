@@ -6,7 +6,13 @@ from app.core.constants import (
     USER_EMAIL_MAX_LENGTH,
     WORKSPACE_NAME_MAX_LENGTH,
 )
+from app.core.messages import (
+    WORKSPACE_NAME_EMPTY_MESSAGE,
+    WORKSPACE_OWNER_ROLE_NOT_ALLOWED_MESSAGE,
+)
 from app.models.enums import WorkspaceRole
+from app.models.user import User
+from app.models.workspace_member import WorkspaceMember
 from app.schemas.base import BaseSchema
 
 
@@ -25,7 +31,7 @@ class WorkspaceUpdate(BaseSchema):
     @classmethod
     def reject_null_name(cls, value: str | None) -> str:
         if value is None:
-            raise ValueError("Workspace name cannot be null.")
+            raise ValueError(WORKSPACE_NAME_EMPTY_MESSAGE)
 
         return value
 
@@ -39,6 +45,9 @@ class WorkspaceResponse(BaseSchema):
 
 class WorkspaceListResponse(BaseSchema):
     items: list[WorkspaceResponse]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    offset: int = Field(ge=0)
 
 
 class WorkspaceMemberCreate(BaseSchema):
@@ -54,7 +63,7 @@ class WorkspaceMemberCreate(BaseSchema):
     @classmethod
     def reject_owner_role(cls, value: WorkspaceRole) -> WorkspaceRole:
         if value == WorkspaceRole.OWNER:
-            raise ValueError("Cannot invite a member with OWNER role.")
+            raise ValueError(WORKSPACE_OWNER_ROLE_NOT_ALLOWED_MESSAGE)
 
         return value
 
@@ -64,6 +73,19 @@ class WorkspaceMemberResponse(BaseSchema):
     email: EmailStr
     full_name: str
     role: WorkspaceRole
+
+    @classmethod
+    def from_membership(
+        cls,
+        membership: WorkspaceMember,
+        user: User,
+    ) -> "WorkspaceMemberResponse":
+        return cls(
+            user_id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            role=membership.role,
+        )
 
 
 class WorkspaceMemberListResponse(BaseSchema):

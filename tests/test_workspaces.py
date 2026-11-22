@@ -60,6 +60,69 @@ async def test_get_all_workspaces_returns_user_workspaces(
 
     assert len(data["items"]) == 1
     assert data["items"][0]["id"] == task_context["workspace_id"]
+    assert data["total"] == 1
+    assert data["limit"] == 10
+    assert data["offset"] == 0
+
+
+async def test_admin_can_get_all_workspaces_with_pagination(
+    authenticated_client: AsyncClient,
+    db_session,
+    task_context: dict[str, int],
+    another_user_context: dict[str, int],
+):
+    admin_user = await db_session.get(User, task_context["user_id"])
+    assert admin_user is not None
+
+    admin_user.role = UserRole.ADMIN
+
+    first_response = await authenticated_client.get(
+        "/api/v1/workspaces",
+        params={"limit": 1, "offset": 0},
+    )
+
+    second_response = await authenticated_client.get(
+        "/api/v1/workspaces",
+        params={"limit": 1, "offset": 1},
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    first_data = first_response.json()
+    second_data = second_response.json()
+
+    assert first_data["total"] == 2
+    assert second_data["total"] == 2
+    assert first_data["limit"] == 1
+    assert second_data["limit"] == 1
+    assert first_data["offset"] == 0
+    assert second_data["offset"] == 1
+    assert len(first_data["items"]) == 1
+    assert len(second_data["items"]) == 1
+    assert first_data["items"][0]["id"] != second_data["items"][0]["id"]
+
+
+async def test_get_all_workspaces_rejects_zero_limit(
+    authenticated_client: AsyncClient,
+):
+    response = await authenticated_client.get(
+        "/api/v1/workspaces",
+        params={"limit": 0},
+    )
+
+    assert response.status_code == 422
+
+
+async def test_get_all_workspaces_rejects_negative_offset(
+    authenticated_client: AsyncClient,
+):
+    response = await authenticated_client.get(
+        "/api/v1/workspaces",
+        params={"offset": -1},
+    )
+
+    assert response.status_code == 422
 
 
 async def test_get_workspace_by_id_success(
@@ -118,10 +181,22 @@ async def test_owner_cannot_update_workspace_with_empty_payload(
 
 
 async def test_non_owner_cannot_update_workspace(
+    authenticated_client: AsyncClient,
     async_client: AsyncClient,
     task_context: dict[str, int],
+    another_user_context: dict[str, int],
     another_user_token: str,
 ):
+    add_response = await authenticated_client.post(
+        f"/api/v1/workspaces/{task_context['workspace_id']}/members",
+        json={
+            "email": "another-task-test@example.com",
+            "role": "EDITOR",
+        },
+    )
+
+    assert add_response.status_code == 201
+
     async_client.headers["Authorization"] = f"Bearer {another_user_token}"
 
     response = await async_client.patch(
@@ -281,6 +356,16 @@ async def test_owner_can_remove_workspace_member(
 
     assert response.status_code == 204
 
+    members_response = await authenticated_client.get(
+        f"/api/v1/workspaces/{task_context['workspace_id']}/members",
+    )
+
+    assert members_response.status_code == 200
+    remaining_user_ids = [
+        member["user_id"] for member in members_response.json()["items"]
+    ]
+    assert another_user_context["user_id"] not in remaining_user_ids
+
 
 async def test_owner_cannot_remove_self_from_workspace(
     authenticated_client: AsyncClient,
@@ -412,10 +497,22 @@ async def test_get_nonexistent_workspace_returns_404(
 
 
 async def test_non_owner_cannot_delete_workspace(
+    authenticated_client: AsyncClient,
     async_client: AsyncClient,
     task_context: dict[str, int],
+    another_user_context: dict[str, int],
     another_user_token: str,
 ):
+    add_response = await authenticated_client.post(
+        f"/api/v1/workspaces/{task_context['workspace_id']}/members",
+        json={
+            "email": "another-task-test@example.com",
+            "role": "EDITOR",
+        },
+    )
+
+    assert add_response.status_code == 201
+
     async_client.headers["Authorization"] = f"Bearer {another_user_token}"
 
     response = await async_client.delete(
@@ -453,6 +550,7 @@ async def test_admin_can_manage_workspace_without_membership(
 
     assert list_response.status_code == 200
     assert len(list_response.json()["items"]) == 2
+    assert list_response.json()["total"] == 2
 
     detail_response = await authenticated_client.get(
         f"/api/v1/workspaces/{workspace_id}",

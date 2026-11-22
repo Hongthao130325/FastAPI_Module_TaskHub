@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import WorkspaceRole
@@ -20,6 +20,7 @@ class WorkspaceRepository:
     async def get_by_id(self, workspace_id: int) -> Workspace | None:
         return await self.session.get(Workspace, workspace_id)
 
+
     async def get_by_id_for_update(
         self,
         workspace_id: int,
@@ -30,12 +31,41 @@ class WorkspaceRepository:
 
         return await self.session.scalar(statement)
 
-    async def get_all(self) -> list[Workspace]:
-        statement = select(Workspace).order_by(Workspace.id)
+    async def get_all(
+        self,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Workspace], int]:
+        count_statement = select(func.count(Workspace.id))
+        total = await self.session.scalar(count_statement)
 
-        return list(await self.session.scalars(statement))
+        statement = (
+            select(Workspace)
+            .order_by(Workspace.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.scalars(statement)
 
-    async def get_all_for_user(self, user_id: int) -> list[Workspace]:
+        return list(result.all()), total or 0
+
+      
+    async def get_all_for_user(
+        self,
+        user_id: int,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Workspace], int]:
+        count_statement = (
+            select(func.count(Workspace.id))
+            .join(
+                WorkspaceMember,
+                WorkspaceMember.workspace_id == Workspace.id,
+            )
+            .where(WorkspaceMember.user_id == user_id)
+        )
+        total = await self.session.scalar(count_statement)
+
         statement = (
             select(Workspace)
             .join(
@@ -44,9 +74,12 @@ class WorkspaceRepository:
             )
             .where(WorkspaceMember.user_id == user_id)
             .order_by(Workspace.id)
+            .limit(limit)
+            .offset(offset)
         )
+        result = await self.session.scalars(statement)
 
-        return list(await self.session.scalars(statement))
+        return list(result.all()), total or 0
 
     async def get_membership(
         self,

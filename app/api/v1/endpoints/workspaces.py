@@ -1,7 +1,8 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
+from app.core.constants import DEFAULT_OFFSET, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.dependencies.auth import CurrentUserDep
 from app.dependencies.common import get_workspace_service
 from app.schemas.workspace import (
@@ -21,6 +22,21 @@ router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 WorkspaceServiceDep = Annotated[
     WorkspaceService,
     Depends(get_workspace_service),
+]
+LimitQuery = Annotated[
+    int,
+    Query(
+        ge=1,
+        le=MAX_PAGE_SIZE,
+        description="Maximum number of workspaces to return.",
+    ),
+]
+OffsetQuery = Annotated[
+    int,
+    Query(
+        ge=0,
+        description="Number of workspaces to skip.",
+    ),
 ]
 
 
@@ -51,11 +67,20 @@ async def create_workspace(
 async def get_all_workspaces(
     service: WorkspaceServiceDep,
     current_user: CurrentUserDep,
+    limit: LimitQuery = DEFAULT_PAGE_SIZE,
+    offset: OffsetQuery = DEFAULT_OFFSET,
 ) -> WorkspaceListResponse:
-    workspaces = await service.get_all_workspaces(current_user.user)
+    workspaces, total = await service.get_all_workspaces(
+        user=current_user.user,
+        limit=limit,
+        offset=offset,
+    )
 
     return WorkspaceListResponse(
         items=[WorkspaceResponse.model_validate(workspace) for workspace in workspaces],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -129,11 +154,9 @@ async def add_workspace_member(
         current_user.user,
     )
 
-    return WorkspaceMemberResponse(
-        user_id=member_user.id,
-        email=member_user.email,
-        full_name=member_user.full_name,
-        role=membership.role,
+    return WorkspaceMemberResponse.from_membership(
+        membership,
+        member_user,
     )
 
 
@@ -154,12 +177,7 @@ async def get_workspace_members(
 
     return WorkspaceMemberListResponse(
         items=[
-            WorkspaceMemberResponse(
-                user_id=user.id,
-                email=user.email,
-                full_name=user.full_name,
-                role=membership.role,
-            )
+            WorkspaceMemberResponse.from_membership(membership, user)
             for membership, user in members
         ],
     )

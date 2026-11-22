@@ -1,10 +1,8 @@
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.project import Project
+from app.models.enums import TaskPriority, TaskStatus
 from app.models.task import Task
-from app.models.workspace import Workspace
-from app.models.workspace_member import WorkspaceMember
 
 
 class TaskRepository:
@@ -17,39 +15,37 @@ class TaskRepository:
 
         return task
 
-    async def get_all(
+    async def get_all_for_project(
         self,
-        user_id: int,
-        is_admin: bool,
+        project_id: int,
+        page: int,
         limit: int,
-        offset: int,
+        statuses: list[TaskStatus] | None = None,
+        priorities: list[TaskPriority] | None = None,
+        assignee_id: int | None = None,
     ) -> tuple[list[Task], int]:
-        count_statement = (
-            select(func.count(Task.id))
-            .join(Project, Task.project_id == Project.id)
-            .join(Workspace, Project.workspace_id == Workspace.id)
-        )
+        filters = [Task.project_id == project_id]
+
+        if statuses:
+            filters.append(Task.status.in_(statuses))
+
+        if priorities:
+            filters.append(Task.priority.in_(priorities))
+
+        if assignee_id is not None:
+            filters.append(Task.assignee_id == assignee_id)
+
+        total_statement = select(func.count()).select_from(Task).where(*filters)
+
+        total = await self.session.scalar(total_statement)
 
         statement = (
             select(Task)
-            .join(Project, Task.project_id == Project.id)
-            .join(Workspace, Project.workspace_id == Workspace.id)
+            .where(*filters)
+            .order_by(Task.id)
+            .offset((page - 1) * limit)
+            .limit(limit)
         )
-
-        if not is_admin:
-            count_statement = count_statement.join(
-                WorkspaceMember,
-                WorkspaceMember.workspace_id == Workspace.id,
-            ).where(WorkspaceMember.user_id == user_id)
-
-            statement = statement.join(
-                WorkspaceMember,
-                WorkspaceMember.workspace_id == Workspace.id,
-            ).where(WorkspaceMember.user_id == user_id)
-
-        total = await self.session.scalar(count_statement)
-
-        statement = statement.order_by(Task.id).limit(limit).offset(offset)
 
         result = await self.session.scalars(statement)
 
@@ -58,11 +54,7 @@ class TaskRepository:
     async def get_by_id(self, task_id: int) -> Task | None:
         return await self.session.get(Task, task_id)
 
-    async def update(
-        self,
-        task: Task,
-        update_data: dict,
-    ) -> Task:
+    async def update(self, task: Task, update_data: dict) -> Task:
         for field, value in update_data.items():
             setattr(task, field, value)
 
@@ -72,3 +64,4 @@ class TaskRepository:
 
     async def delete(self, task: Task) -> None:
         await self.session.delete(task)
+        await self.session.flush()

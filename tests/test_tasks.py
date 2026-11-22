@@ -6,12 +6,13 @@ async def test_create_task_success(
     task_context: dict[str, int],
 ):
     payload = {
-        "project_id": task_context["project_id"],
         "title": "Test Task",
         "description": "Task created by automated test",
     }
 
-    response = await authenticated_client.post("/api/v1/tasks", json=payload)
+    response = await authenticated_client.post(
+        f"/api/v1/projects/{task_context['project_id']}/tasks", json=payload
+    )
 
     assert response.status_code == 201
 
@@ -19,7 +20,7 @@ async def test_create_task_success(
 
     assert data["title"] == payload["title"]
     assert data["description"] == payload["description"]
-    assert data["project_id"] == payload["project_id"]
+    assert data["project_id"] == task_context["project_id"]
     assert data["created_by"] == task_context["user_id"]
     assert data["status"] == "TODO"
     assert data["priority"] == "MEDIUM"
@@ -32,11 +33,12 @@ async def test_create_task_with_invalid_project(
     task_context: dict[str, int],
 ):
     payload = {
-        "project_id": 999999,
         "title": "Invalid Project Task",
     }
 
-    response = await authenticated_client.post("/api/v1/tasks", json=payload)
+    response = await authenticated_client.post(
+        "/api/v1/projects/999999/tasks", json=payload
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Project not found"
@@ -47,9 +49,8 @@ async def test_create_task_rejects_client_provided_creator(
     task_context: dict[str, int],
 ):
     response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "created_by": 999999,
             "title": "Client Provided Creator Task",
         },
@@ -63,12 +64,13 @@ async def test_create_task_with_invalid_assignee(
     task_context: dict[str, int],
 ):
     payload = {
-        "project_id": task_context["project_id"],
         "assignee_id": 999999,
         "title": "Invalid Assignee Task",
     }
 
-    response = await authenticated_client.post("/api/v1/tasks", json=payload)
+    response = await authenticated_client.post(
+        f"/api/v1/projects/{task_context['project_id']}/tasks", json=payload
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"] == "User not found"
@@ -79,13 +81,16 @@ async def test_get_all_tasks(
     task_context: dict[str, int],
 ):
     payload = {
-        "project_id": task_context["project_id"],
         "title": "Task For Listing",
     }
 
-    await authenticated_client.post("/api/v1/tasks", json=payload)
+    await authenticated_client.post(
+        f"/api/v1/projects/{task_context['project_id']}/tasks", json=payload
+    )
 
-    response = await authenticated_client.get("/api/v1/tasks")
+    response = await authenticated_client.get(
+        f"/api/v1/projects/{task_context['project_id']}/tasks"
+    )
 
     assert response.status_code == 200
 
@@ -94,8 +99,8 @@ async def test_get_all_tasks(
     assert len(data["items"]) == 1
     assert data["items"][0]["title"] == payload["title"]
     assert data["total"] == 1
-    assert data["limit"] == 10
-    assert data["offset"] == 0
+    assert data["limit"] == 20
+    assert data["page"] == 1
 
 
 async def test_get_all_tasks_with_limit_and_offset(
@@ -104,9 +109,8 @@ async def test_get_all_tasks_with_limit_and_offset(
 ):
     for index in range(3):
         response = await authenticated_client.post(
-            "/api/v1/tasks",
+            f"/api/v1/projects/{task_context['project_id']}/tasks",
             json={
-                "project_id": task_context["project_id"],
                 "title": f"Task {index + 1}",
             },
         )
@@ -114,22 +118,19 @@ async def test_get_all_tasks_with_limit_and_offset(
         assert response.status_code == 201
 
     response = await authenticated_client.get(
-        "/api/v1/tasks",
-        params={"limit": 2, "offset": 1},
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
+        params={"limit": 2, "page": 2},
     )
 
     assert response.status_code == 200
 
     data = response.json()
 
-    assert len(data["items"]) == 2
-    assert [item["title"] for item in data["items"]] == [
-        "Task 2",
-        "Task 3",
-    ]
+    assert len(data["items"]) == 1
+    assert [item["title"] for item in data["items"]] == ["Task 3"]
     assert data["total"] == 3
     assert data["limit"] == 2
-    assert data["offset"] == 1
+    assert data["page"] == 2
 
 
 async def test_get_all_tasks_with_empty_page(
@@ -137,16 +138,15 @@ async def test_get_all_tasks_with_empty_page(
     task_context: dict[str, int],
 ):
     await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task For Empty Page",
         },
     )
 
     response = await authenticated_client.get(
-        "/api/v1/tasks",
-        params={"limit": 10, "offset": 10},
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
+        params={"limit": 10, "page": 2},
     )
 
     assert response.status_code == 200
@@ -156,14 +156,14 @@ async def test_get_all_tasks_with_empty_page(
     assert data["items"] == []
     assert data["total"] == 1
     assert data["limit"] == 10
-    assert data["offset"] == 10
+    assert data["page"] == 2
 
 
 async def test_get_all_tasks_with_invalid_limit(
     authenticated_client: AsyncClient,
 ):
     response = await authenticated_client.get(
-        "/api/v1/tasks",
+        "/api/v1/projects/1/tasks",
         params={"limit": 0},
     )
 
@@ -174,19 +174,20 @@ async def test_get_all_tasks_with_limit_exceeding_maximum(
     authenticated_client: AsyncClient,
 ):
     response = await authenticated_client.get(
-        "/api/v1/tasks",
+        "/api/v1/projects/1/tasks",
         params={"limit": 101},
     )
 
     assert response.status_code == 422
 
 
-async def test_get_all_tasks_with_negative_offset(
+async def test_get_all_tasks_with_invalid_page(
     authenticated_client: AsyncClient,
+    task_context: dict[str, int],
 ):
     response = await authenticated_client.get(
-        "/api/v1/tasks",
-        params={"offset": -1},
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
+        params={"page": 0},
     )
 
     assert response.status_code == 422
@@ -197,12 +198,11 @@ async def test_get_task_by_id(
     task_context: dict[str, int],
 ):
     payload = {
-        "project_id": task_context["project_id"],
         "title": "Task For Detail",
     }
 
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json=payload,
     )
 
@@ -232,12 +232,11 @@ async def test_update_task_success(
     task_context: dict[str, int],
 ):
     payload = {
-        "project_id": task_context["project_id"],
         "title": "Original Task",
     }
 
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json=payload,
     )
 
@@ -265,9 +264,8 @@ async def test_update_task_clear_assignee(
     task_context: dict[str, int],
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task With Assignee",
         },
     )
@@ -288,9 +286,8 @@ async def test_update_task_with_invalid_assignee(
     task_context: dict[str, int],
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task For Invalid Assignee",
         },
     )
@@ -323,9 +320,8 @@ async def test_update_task_with_null_title(
     task_context: dict[str, int],
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task For Null Validation",
         },
     )
@@ -345,9 +341,8 @@ async def test_delete_task_success(
     task_context: dict[str, int],
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task For Deletion",
         },
     )
@@ -383,9 +378,8 @@ async def test_create_task_with_future_aware_due_date(
     task_context: dict[str, int],
 ):
     response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task With Future Due Date",
             "due_date": "2099-12-01T10:00:00+07:00",
         },
@@ -400,9 +394,8 @@ async def test_create_task_with_naive_due_date(
     task_context: dict[str, int],
 ):
     response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task With Naive Due Date",
             "due_date": "2099-12-01T10:00:00",
         },
@@ -416,9 +409,8 @@ async def test_create_task_with_past_due_date(
     task_context: dict[str, int],
 ):
     response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task With Past Due Date",
             "due_date": "2000-01-01T10:00:00+07:00",
         },
@@ -432,9 +424,8 @@ async def test_update_task_with_future_aware_due_date(
     task_context: dict[str, int],
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task For Future Due Date Update",
         },
     )
@@ -455,9 +446,8 @@ async def test_update_task_with_naive_due_date(
     task_context: dict[str, int],
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task For Naive Due Date Update",
         },
     )
@@ -477,9 +467,8 @@ async def test_update_task_with_past_due_date(
     task_context: dict[str, int],
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task For Past Due Date Update",
         },
     )
@@ -497,7 +486,7 @@ async def test_update_task_with_past_due_date(
 async def test_get_all_tasks_requires_authentication(
     async_client: AsyncClient,
 ):
-    response = await async_client.get("/api/v1/tasks")
+    response = await async_client.get("/api/v1/projects/1/tasks")
 
     assert response.status_code == 401
 
@@ -507,9 +496,8 @@ async def test_create_task_requires_authentication(
     task_context: dict[str, int],
 ):
     response = await async_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Unauthenticated Task",
         },
     )
@@ -523,9 +511,8 @@ async def test_get_task_requires_authentication(
     task_context: dict[str, int],
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Unauthenticated Access Task",
         },
     )
@@ -545,9 +532,8 @@ async def test_update_task_requires_authentication(
     task_context: dict[str, int],
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Unauthenticated Update Task",
         },
     )
@@ -570,9 +556,8 @@ async def test_delete_task_requires_authentication(
     task_context: dict[str, int],
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Unauthenticated Delete Task",
         },
     )
@@ -591,17 +576,14 @@ async def test_create_task_forbidden_for_another_users_project(
     another_user_context: dict[str, int],
 ):
     response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{another_user_context['project_id']}/tasks",
         json={
-            "project_id": another_user_context["project_id"],
             "title": "Forbidden Task",
         },
     )
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == (
-        "You do not have permission to create a task in this project"
-    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == ("Project not found")
 
 
 async def test_get_task_returns_not_found_for_another_user(
@@ -612,9 +594,8 @@ async def test_get_task_returns_not_found_for_another_user(
     another_user_token: str,
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Private Task",
         },
     )
@@ -636,9 +617,8 @@ async def test_update_task_returns_not_found_for_another_user(
     another_user_token: str,
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Private Task",
         },
     )
@@ -663,9 +643,8 @@ async def test_delete_task_returns_not_found_for_another_user(
     another_user_token: str,
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Private Task",
         },
     )
@@ -679,7 +658,7 @@ async def test_delete_task_returns_not_found_for_another_user(
     assert response.status_code == 404
 
 
-async def test_get_all_tasks_only_returns_current_users_tasks(
+async def test_get_all_tasks_hides_another_users_project(
     authenticated_client: AsyncClient,
     async_client: AsyncClient,
     task_context: dict[str, int],
@@ -687,20 +666,98 @@ async def test_get_all_tasks_only_returns_current_users_tasks(
     another_user_token: str,
 ):
     await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "User One Task",
         },
     )
 
     async_client.headers["Authorization"] = f"Bearer {another_user_token}"
 
-    response = await async_client.get("/api/v1/tasks")
+    response = await async_client.get(
+        f"/api/v1/projects/{task_context['project_id']}/tasks"
+    )
 
-    assert response.status_code == 200
+    assert response.status_code == 404
 
-    data = response.json()
+    assert response.json()["detail"] == "Project not found"
 
-    assert data["total"] == 0
-    assert data["items"] == []
+
+async def test_get_all_tasks_with_filters(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    assignee_id = task_context["user_id"]
+    project_url = f"/api/v1/projects/{task_context['project_id']}/tasks"
+
+    tasks = [
+        {
+            "title": "TODO LOW Assigned",
+            "priority": "LOW",
+            "assignee_id": assignee_id,
+        },
+        {
+            "title": "DONE HIGH Assigned",
+            "priority": "HIGH",
+            "assignee_id": assignee_id,
+        },
+        {
+            "title": "TODO HIGH Assigned",
+            "priority": "HIGH",
+            "assignee_id": assignee_id,
+        },
+        {
+            "title": "TODO HIGH Unassigned",
+            "priority": "HIGH",
+        },
+    ]
+
+    created_task_ids = []
+
+    for payload in tasks:
+        response = await authenticated_client.post(project_url, json=payload)
+        assert response.status_code == 201
+        created_task_ids.append(response.json()["id"])
+
+    update_response = await authenticated_client.patch(
+        f"/api/v1/tasks/{created_task_ids[1]}",
+        json={"status": "DONE"},
+    )
+    assert update_response.status_code == 200
+
+    status_response = await authenticated_client.get(
+        project_url,
+        params={"status": "TODO"},
+    )
+    priority_response = await authenticated_client.get(
+        project_url,
+        params={"priority": "HIGH"},
+    )
+    assignee_response = await authenticated_client.get(
+        project_url,
+        params={"assignee_id": assignee_id},
+    )
+    combined_response = await authenticated_client.get(
+        project_url,
+        params={
+            "status": "TODO",
+            "priority": "HIGH",
+            "assignee_id": assignee_id,
+        },
+    )
+
+    for response in (
+        status_response,
+        priority_response,
+        assignee_response,
+        combined_response,
+    ):
+        assert response.status_code == 200
+
+    assert status_response.json()["total"] == 3
+    assert priority_response.json()["total"] == 3
+    assert assignee_response.json()["total"] == 3
+
+    combined_data = combined_response.json()
+    assert combined_data["total"] == 1
+    assert combined_data["items"][0]["title"] == "TODO HIGH Assigned"

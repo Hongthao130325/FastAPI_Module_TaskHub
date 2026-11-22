@@ -15,20 +15,16 @@ from app.schemas.base import BaseSchema
 
 class TaskCreate(BaseSchema):
     model_config = ConfigDict(extra="forbid")
-    project_id: int = Field(gt=0)
-    assignee_id: int | None = Field(default=None, gt=0)
 
+    assignee_id: int | None = Field(default=None, gt=0)
     title: str = Field(
         min_length=TASK_TITLE_MIN_LENGTH,
         max_length=TASK_TITLE_MAX_LENGTH,
     )
-
     description: str | None = Field(
         default=None,
         max_length=TASK_DESCRIPTION_MAX_LENGTH,
     )
-
-    status: TaskStatus = TaskStatus.TODO
     priority: TaskPriority = TaskPriority.MEDIUM
     due_date: AwareDatetime | None = None
 
@@ -47,12 +43,10 @@ class TaskUpdate(BaseSchema):
         min_length=TASK_TITLE_MIN_LENGTH,
         max_length=TASK_TITLE_MAX_LENGTH,
     )
-
     description: str | None = Field(
         default=None,
         max_length=TASK_DESCRIPTION_MAX_LENGTH,
     )
-
     assignee_id: int | None = Field(default=None, gt=0)
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
@@ -91,5 +85,5 @@ class TaskResponse(BaseSchema):
 class TaskListResponse(BaseSchema):
     items: list[TaskResponse]
     total: int = Field(ge=0)
+    page: int = Field(ge=1)
     limit: int = Field(ge=1, le=MAX_PAGE_SIZE)
-    offset: int = Field(ge=0)

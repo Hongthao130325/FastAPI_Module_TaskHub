@@ -13,6 +13,7 @@ from app.repositories.user_repository import UserRepository
 from app.repositories.workspace_repository import WorkspaceRepository
 from app.services.auth_service import AuthService
 from app.services.project_service import ProjectService
+from app.services.task_authorization import TaskAuthorization
 from app.services.task_service import TaskService
 from app.services.workspace_service import WorkspaceService
 
@@ -26,14 +27,22 @@ def get_task_service(
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> TaskService:
     task_repository = TaskRepository(session)
+    project_repository = ProjectRepository(session)
     reference_repository = ReferenceRepository(session)
     workspace_repository = WorkspaceRepository(session)
+
+    authorization = TaskAuthorization(
+        task_repository=task_repository,
+        project_repository=project_repository,
+        workspace_repository=workspace_repository,
+    )
 
     return TaskService(
         session=session,
         repository=task_repository,
         reference_repository=reference_repository,
         workspace_repository=workspace_repository,
+        authorization=authorization,
     )
 
 

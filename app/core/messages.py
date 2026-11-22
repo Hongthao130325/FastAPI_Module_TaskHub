@@ -37,3 +37,9 @@ WORKSPACE_MEMBER_NOT_FOUND_MESSAGE = "Workspace member not found"
 WORKSPACE_MEMBER_ALREADY_EXISTS_MESSAGE = "User is already a member of this workspace"
 WORKSPACE_INVITATION_USER_NOT_FOUND_MESSAGE = "User with this email does not exist"
 WORKSPACE_OWNER_ROLE_NOT_ALLOWED_MESSAGE = "Cannot invite a member with OWNER role"
+
+TASK_ASSIGNEE_NOT_IN_WORKSPACE_MESSAGE = (
+    "Assignee must be a member of the project workspace"
+)
+PROJECT_ARCHIVED_MESSAGE = "Cannot modify tasks in an archived project"
+TASK_ACCESS_FORBIDDEN_MESSAGE = "You do not have permission to modify this task"

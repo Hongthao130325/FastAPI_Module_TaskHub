@@ -1,18 +1,12 @@
-from collections.abc import Awaitable, Callable
-from typing import TypeVar
-
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
-    ConflictException,
     ForbiddenException,
     NotFoundException,
 )
 from app.core.messages import (
     COMMENT_ACCESS_FORBIDDEN_MESSAGE,
     COMMENT_NOT_FOUND_MESSAGE,
-    RESOURCE_CONFLICT_MESSAGE,
 )
 from app.core.permissions import has_workspace_role
 from app.models.comment import Comment
@@ -22,8 +16,7 @@ from app.repositories.comment_repository import CommentRepository
 from app.schemas.comment import CommentCreate, CommentUpdate
 from app.schemas.pagination import PaginationParams
 from app.services.task_authorization import TaskAuthorization
-
-T = TypeVar("T")
+from app.services.transaction import execute_write
 
 
 class CommentService:
@@ -37,26 +30,15 @@ class CommentService:
         self.repository = repository
         self.authorization = authorization
 
-    async def _execute_write(
+    def _ensure_comment_update_access(
         self,
-        operation: Callable[[], Awaitable[T]],
-    ) -> T:
-        try:
-            result = await operation()
-            await self.session.commit()
+        comment: Comment,
+        user: User,
+    ) -> None:
+        if comment.author_id != user.id:
+            raise ForbiddenException(COMMENT_ACCESS_FORBIDDEN_MESSAGE)
 
-            return result
-
-        except IntegrityError as exc:
-            await self.session.rollback()
-
-            raise ConflictException(RESOURCE_CONFLICT_MESSAGE) from exc
-
-        except Exception:
-            await self.session.rollback()
-            raise
-
-    def _ensure_comment_modify_access(
+    def _ensure_comment_delete_access(
         self,
         comment: Comment,
         membership,
@@ -86,7 +68,7 @@ class CommentService:
             content=comment_data.content,
         )
 
-        await self._execute_write(lambda: self.repository.create(comment))
+        await execute_write(self.session, lambda: self.repository.create(comment))
         await self.session.refresh(comment)
 
         return comment
@@ -134,15 +116,11 @@ class CommentService:
         if comment is None:
             raise NotFoundException(COMMENT_NOT_FOUND_MESSAGE)
 
-        self._ensure_comment_modify_access(
-            comment,
-            context.membership,
-            user,
-        )
+        self._ensure_comment_update_access(comment, user)
 
         data = update_data.model_dump(exclude_unset=True)
 
-        await self._execute_write(lambda: self.repository.update(comment, data))
+        await execute_write(self.session, lambda: self.repository.update(comment, data))
         await self.session.refresh(comment)
 
         return comment
@@ -161,10 +139,10 @@ class CommentService:
         if comment is None:
             raise NotFoundException(COMMENT_NOT_FOUND_MESSAGE)
 
-        self._ensure_comment_modify_access(
+        self._ensure_comment_delete_access(
             comment,
             context.membership,
             user,
         )
 
-        await self._execute_write(lambda: self.repository.delete(comment))
+        await execute_write(self.session, lambda: self.repository.delete(comment))

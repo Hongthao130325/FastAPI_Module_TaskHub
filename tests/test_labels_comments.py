@@ -224,6 +224,70 @@ async def test_editor_cannot_delete_another_users_comment(
     assert delete_response.status_code == 403
 
 
+async def test_author_can_update_own_comment(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    task_id = await create_task(
+        authenticated_client,
+        task_context["project_id"],
+    )
+
+    comment_response = await authenticated_client.post(
+        f"/api/v1/tasks/{task_id}/comments",
+        json={"content": "Original comment"},
+    )
+
+    assert comment_response.status_code == 201
+    comment_id = comment_response.json()["id"]
+
+    update_response = await authenticated_client.patch(
+        f"/api/v1/tasks/{task_id}/comments/{comment_id}",
+        json={"content": "Updated comment"},
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["content"] == "Updated comment"
+
+
+async def test_editor_cannot_update_another_users_comment(
+    authenticated_client: AsyncClient,
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    task_context: dict[str, int],
+    another_user_context: dict[str, int],
+    another_user_token: str,
+):
+    task_id = await create_task(
+        authenticated_client,
+        task_context["project_id"],
+    )
+
+    comment_response = await authenticated_client.post(
+        f"/api/v1/tasks/{task_id}/comments",
+        json={"content": "Comment created by owner"},
+    )
+
+    assert comment_response.status_code == 201
+    comment_id = comment_response.json()["id"]
+
+    await grant_workspace_role(
+        db_session,
+        task_context["workspace_id"],
+        another_user_context["user_id"],
+        WorkspaceRole.EDITOR,
+    )
+
+    async_client.headers["Authorization"] = f"Bearer {another_user_token}"
+
+    update_response = await async_client.patch(
+        f"/api/v1/tasks/{task_id}/comments/{comment_id}",
+        json={"content": "Unauthorized update"},
+    )
+
+    assert update_response.status_code == 403
+
+
 async def test_archived_project_rejects_label_and_comment_writes(
     authenticated_client: AsyncClient,
     db_session: AsyncSession,

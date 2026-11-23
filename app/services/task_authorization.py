@@ -116,6 +116,7 @@ class TaskAuthorization:
         context: ProjectAccessContext | TaskAccessContext,
         user: User,
         forbidden_message: str = TASK_ACCESS_FORBIDDEN_MESSAGE,
+        archived_message: str = PROJECT_ARCHIVED_MESSAGE,
     ) -> None:
         TaskAuthorization.ensure_role_access(
             context,
@@ -125,4 +126,4 @@ class TaskAuthorization:
         )
 
         if context.project.status == ProjectStatus.ARCHIVED:
-            raise ConflictException(PROJECT_ARCHIVED_MESSAGE)
+            raise ConflictException(archived_message)

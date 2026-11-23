@@ -1,7 +1,3 @@
-from collections.abc import Awaitable, Callable
-from typing import TypeVar
-
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
@@ -23,8 +19,7 @@ from app.repositories.label_repository import LabelRepository
 from app.schemas.label import LabelCreate, LabelUpdate
 from app.schemas.pagination import PaginationParams
 from app.services.task_authorization import TaskAuthorization
-
-T = TypeVar("T")
+from app.services.transaction import execute_write
 
 
 class LabelService:
@@ -37,26 +32,6 @@ class LabelService:
         self.session = session
         self.repository = repository
         self.authorization = authorization
-
-    async def _execute_write(
-        self,
-        operation: Callable[[], Awaitable[T]],
-        conflict_message: str,
-    ) -> T:
-        try:
-            result = await operation()
-            await self.session.commit()
-
-            return result
-
-        except IntegrityError as exc:
-            await self.session.rollback()
-
-            raise ConflictException(conflict_message) from exc
-
-        except Exception:
-            await self.session.rollback()
-            raise
 
     async def create_label(
         self,
@@ -75,7 +50,8 @@ class LabelService:
             **label_data.model_dump(),
         )
 
-        return await self._execute_write(
+        return await execute_write(
+            self.session,
             lambda: self.repository.create(label),
             LABEL_ALREADY_EXISTS_MESSAGE,
         )
@@ -131,7 +107,8 @@ class LabelService:
         if not data:
             raise BadRequestException(LABEL_UPDATE_EMPTY_MESSAGE)
 
-        return await self._execute_write(
+        return await execute_write(
+            self.session,
             lambda: self.repository.update(label, data),
             LABEL_ALREADY_EXISTS_MESSAGE,
         )
@@ -153,9 +130,9 @@ class LabelService:
         if label is None or label.project_id != project_id:
             raise NotFoundException(LABEL_NOT_FOUND_MESSAGE)
 
-        await self._execute_write(
+        await execute_write(
+            self.session,
             lambda: self.repository.delete(label),
-            LABEL_ALREADY_EXISTS_MESSAGE,
         )
 
     async def attach_label_to_task(
@@ -184,7 +161,8 @@ class LabelService:
             if not attached:
                 raise ConflictException(LABEL_ALREADY_ATTACHED_MESSAGE)
 
-        await self._execute_write(
+        await execute_write(
+            self.session,
             operation,
             LABEL_ALREADY_ATTACHED_MESSAGE,
         )
@@ -215,7 +193,8 @@ class LabelService:
             if not detached:
                 raise NotFoundException(LABEL_NOT_ATTACHED_MESSAGE)
 
-        await self._execute_write(
+        await execute_write(
+            self.session,
             operation,
             LABEL_NOT_ATTACHED_MESSAGE,
         )

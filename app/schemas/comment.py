@@ -1,29 +1,21 @@
 from datetime import datetime
 
-from pydantic import ConfigDict, Field, PositiveInt, field_validator
+from pydantic import ConfigDict, Field, PositiveInt
 
-from app.core.constants import MAX_PAGE_SIZE
+from app.core.constants import COMMENT_CONTENT_MAX_LENGTH, MAX_PAGE_SIZE
 from app.schemas.base import BaseSchema
 
 
 class CommentCreate(BaseSchema):
     model_config = ConfigDict(extra="forbid")
 
-    content: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=COMMENT_CONTENT_MAX_LENGTH)
 
 
 class CommentUpdate(BaseSchema):
     model_config = ConfigDict(extra="forbid")
 
-    content: str = Field(min_length=1)
-
-    @field_validator("content", mode="before")
-    @classmethod
-    def reject_null_values(cls, value):
-        if value is None:
-            raise ValueError("Field cannot be null.")
-
-        return value
+    content: str = Field(min_length=1, max_length=COMMENT_CONTENT_MAX_LENGTH)
 
 
 class CommentResponse(BaseSchema):

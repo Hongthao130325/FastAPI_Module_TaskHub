@@ -1,16 +1,10 @@
-from collections.abc import Awaitable, Callable
-from typing import TypeVar
-
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
     BadRequestException,
-    ConflictException,
     NotFoundException,
 )
 from app.core.messages import (
-    RESOURCE_CONFLICT_MESSAGE,
     TASK_ASSIGNEE_NOT_IN_WORKSPACE_MESSAGE,
     USER_NOT_FOUND_MESSAGE,
 )
@@ -22,11 +16,8 @@ from app.repositories.task_repository import TaskRepository
 from app.repositories.workspace_repository import WorkspaceRepository
 from app.schemas.pagination import PaginationParams
 from app.schemas.task import TaskCreate
-from app.services.task_authorization import (
-    TaskAuthorization,
-)
-
-T = TypeVar("T")
+from app.services.task_authorization import TaskAuthorization
+from app.services.transaction import execute_write
 
 
 class TaskService:
@@ -43,21 +34,6 @@ class TaskService:
         self.reference_repository = reference_repository
         self.workspace_repository = workspace_repository
         self.authorization = authorization
-
-    async def _execute_write(
-        self,
-        operation: Callable[[], Awaitable[T]],
-    ) -> T:
-        try:
-            result = await operation()
-            await self.session.commit()
-
-            return result
-
-        except IntegrityError as exc:
-            await self.session.rollback()
-
-            raise ConflictException(RESOURCE_CONFLICT_MESSAGE) from exc
 
     async def _validate_assignee(
         self,
@@ -101,7 +77,7 @@ class TaskService:
             created_by=user.id,
         )
 
-        await self._execute_write(lambda: self.repository.create(task))
+        await execute_write(self.session, lambda: self.repository.create(task))
         await self.session.refresh(task)
 
         return task
@@ -149,8 +125,8 @@ class TaskService:
                 assignee_id=update_data["assignee_id"],
             )
 
-        await self._execute_write(
-            lambda: self.repository.update(context.task, update_data)
+        await execute_write(
+            self.session, lambda: self.repository.update(context.task, update_data)
         )
         await self.session.refresh(context.task)
 
@@ -164,4 +140,4 @@ class TaskService:
         context = await self.authorization.get_task_context(task_id, user)
         self.authorization.ensure_write_access(context, user)
 
-        await self._execute_write(lambda: self.repository.delete(context.task))
+        await execute_write(self.session, lambda: self.repository.delete(context.task))

@@ -1,9 +1,7 @@
 TASK_NOT_FOUND_MESSAGE = "Task not found"
 PROJECT_NOT_FOUND_MESSAGE = "Project not found"
 PROJECT_UPDATE_EMPTY_MESSAGE = "At least one field must be provided"
-PROJECT_ACCESS_FORBIDDEN_MESSAGE = (
-    "You do not have permission to modify this project"
-)
+PROJECT_ACCESS_FORBIDDEN_MESSAGE = "You do not have permission to modify this project"
 USER_NOT_FOUND_MESSAGE = "User not found"
 FIELD_CANNOT_BE_NULL_MESSAGE = "Field cannot be null"
 RESOURCE_CONFLICT_MESSAGE = "Resource conflict"
@@ -42,6 +40,7 @@ TASK_ASSIGNEE_NOT_IN_WORKSPACE_MESSAGE = (
     "Assignee must be a member of the project workspace"
 )
 PROJECT_ARCHIVED_MESSAGE = "Cannot modify tasks in an archived project"
+PROJECT_MODIFICATION_ARCHIVED_MESSAGE = "Cannot modify an archived project"
 TASK_ACCESS_FORBIDDEN_MESSAGE = "You do not have permission to modify this task"
 
 LABEL_NOT_FOUND_MESSAGE = "Label not found"
@@ -53,4 +52,3 @@ LABEL_UPDATE_EMPTY_MESSAGE = "At least one field must be provided"
 
 COMMENT_NOT_FOUND_MESSAGE = "Comment not found"
 COMMENT_ACCESS_FORBIDDEN_MESSAGE = "You can only modify your own comments"
-COMMENT_UPDATE_EMPTY_MESSAGE = "At least one field must be provided"

@@ -21,6 +21,7 @@ from app.services.label_service import LabelService
 from app.services.project_service import ProjectService
 from app.services.task_authorization import TaskAuthorization
 from app.services.task_service import TaskService
+from app.services.workspace_authorization import WorkspaceAuthorization
 from app.services.workspace_service import WorkspaceService
 
 
@@ -93,10 +94,13 @@ def get_workspace_service(
     workspace_repository = WorkspaceRepository(session)
     user_repository = UserRepository(session)
 
+    authorization = WorkspaceAuthorization(workspace_repository)
+
     return WorkspaceService(
         session=session,
         repository=workspace_repository,
         user_repository=user_repository,
+        authorization=authorization,
     )
 
 
@@ -106,17 +110,14 @@ def get_project_service(
     project_repository = ProjectRepository(session)
     workspace_repository = WorkspaceRepository(session)
 
-    authorization = TaskAuthorization(
-        task_repository=TaskRepository(session),
-        project_repository=project_repository,
-        workspace_repository=workspace_repository,
-    )
+    authorization = get_task_authorization(session)
+    workspace_authorization = WorkspaceAuthorization(workspace_repository)
 
     return ProjectService(
         session=session,
         repository=project_repository,
-        workspace_repository=workspace_repository,
         authorization=authorization,
+        workspace_authorization=workspace_authorization,
     )
 
 

@@ -40,9 +40,8 @@ async def test_editor_can_create_and_update_task(
     async_client.headers["Authorization"] = f"Bearer {another_user_token}"
 
     create_response = await async_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Editor Task",
         },
     )
@@ -68,9 +67,8 @@ async def test_viewer_can_view_but_cannot_create_update_or_delete_task(
     another_user_token: str,
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Owner Task",
         },
     )
@@ -86,9 +84,8 @@ async def test_viewer_can_view_but_cannot_create_update_or_delete_task(
 
     get_response = await async_client.get(f"/api/v1/tasks/{task_id}")
     create_response = await async_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Viewer Task",
         },
     )
@@ -104,7 +101,7 @@ async def test_viewer_can_view_but_cannot_create_update_or_delete_task(
     assert delete_response.status_code == 403
 
 
-async def test_editor_can_delete_only_tasks_they_created(
+async def test_editor_can_delete_tasks_created_by_other_members(
     authenticated_client: AsyncClient,
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -113,9 +110,8 @@ async def test_editor_can_delete_only_tasks_they_created(
     another_user_token: str,
 ):
     owner_task_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Owner Created Task",
         },
     )
@@ -129,18 +125,19 @@ async def test_editor_can_delete_only_tasks_they_created(
     )
     async_client.headers["Authorization"] = f"Bearer {another_user_token}"
 
-    forbidden_response = await async_client.delete(f"/api/v1/tasks/{owner_task_id}")
+    delete_other_member_task_response = await async_client.delete(
+        f"/api/v1/tasks/{owner_task_id}"
+    )
     editor_task_response = await async_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Editor Created Task",
         },
     )
     editor_task_id = editor_task_response.json()["id"]
     allowed_response = await async_client.delete(f"/api/v1/tasks/{editor_task_id}")
 
-    assert forbidden_response.status_code == 403
+    assert delete_other_member_task_response.status_code == 204
     assert editor_task_response.status_code == 201
     assert allowed_response.status_code == 204
 
@@ -164,9 +161,8 @@ async def test_owner_can_delete_task_created_by_editor(
     async_client.headers["Authorization"] = f"Bearer {another_user_token}"
 
     create_response = await async_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Editor Task",
         },
     )
@@ -188,22 +184,24 @@ async def test_admin_can_access_and_delete_task_without_workspace_membership(
     another_user_token: str,
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Owner Task",
         },
     )
     task_id = create_response.json()["id"]
 
     admin = await db_session.get(User, another_user_context["user_id"])
+    assert admin is not None
     admin.role = UserRole.ADMIN
     await db_session.flush()
 
     async_client.headers["Authorization"] = f"Bearer {another_user_token}"
 
     get_response = await async_client.get(f"/api/v1/tasks/{task_id}")
-    list_response = await async_client.get("/api/v1/tasks")
+    list_response = await async_client.get(
+        f"/api/v1/projects/{task_context['project_id']}/tasks"
+    )
     delete_response = await async_client.delete(f"/api/v1/tasks/{task_id}")
 
     assert get_response.status_code == 200
@@ -218,15 +216,14 @@ async def test_assignee_must_belong_to_project_workspace(
     another_user_context: dict[str, int],
 ):
     response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task With External Assignee",
             "assignee_id": another_user_context["user_id"],
         },
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 400
 
 
 async def test_assignee_can_be_member_of_same_workspace(
@@ -243,9 +240,8 @@ async def test_assignee_can_be_member_of_same_workspace(
     )
 
     response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task With Workspace Assignee",
             "assignee_id": another_user_context["user_id"],
         },
@@ -255,28 +251,27 @@ async def test_assignee_can_be_member_of_same_workspace(
     assert response.json()["assignee_id"] == another_user_context["user_id"]
 
 
-async def test_archived_project_rejects_task_creation_and_update_but_allows_delete(
+async def test_archived_project_rejects_all_task_writes(
     authenticated_client: AsyncClient,
     db_session: AsyncSession,
     task_context: dict[str, int],
 ):
     create_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task Before Archive",
         },
     )
     task_id = create_response.json()["id"]
 
     project = await db_session.get(Project, task_context["project_id"])
+    assert project is not None
     project.status = ProjectStatus.ARCHIVED
     await db_session.flush()
 
     create_archived_response = await authenticated_client.post(
-        "/api/v1/tasks",
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
         json={
-            "project_id": task_context["project_id"],
             "title": "Task After Archive",
         },
     )
@@ -287,6 +282,6 @@ async def test_archived_project_rejects_task_creation_and_update_but_allows_dele
     delete_response = await authenticated_client.delete(f"/api/v1/tasks/{task_id}")
 
     assert create_response.status_code == 201
-    assert create_archived_response.status_code == 403
-    assert update_response.status_code == 403
-    assert delete_response.status_code == 204
+    assert create_archived_response.status_code == 409
+    assert update_response.status_code == 409
+    assert delete_response.status_code == 409

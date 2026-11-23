@@ -607,6 +607,7 @@ async def test_get_task_returns_not_found_for_another_user(
     response = await async_client.get(f"/api/v1/tasks/{task_id}")
 
     assert response.status_code == 404
+    assert response.json()["detail"] == "Task not found"
 
 
 async def test_update_task_returns_not_found_for_another_user(
@@ -729,6 +730,10 @@ async def test_get_all_tasks_with_filters(
         project_url,
         params={"status": "TODO"},
     )
+    multiple_status_response = await authenticated_client.get(
+        project_url,
+        params=[("status", "TODO"), ("status", "DONE")],
+    )
     priority_response = await authenticated_client.get(
         project_url,
         params={"priority": "HIGH"},
@@ -748,6 +753,7 @@ async def test_get_all_tasks_with_filters(
 
     for response in (
         status_response,
+        multiple_status_response,
         priority_response,
         assignee_response,
         combined_response,
@@ -755,6 +761,7 @@ async def test_get_all_tasks_with_filters(
         assert response.status_code == 200
 
     assert status_response.json()["total"] == 3
+    assert multiple_status_response.json()["total"] == 4
     assert priority_response.json()["total"] == 3
     assert assignee_response.json()["total"] == 3
 

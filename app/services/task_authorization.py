@@ -26,7 +26,6 @@ from app.repositories.workspace_repository import WorkspaceRepository
 class ProjectAccessContext:
     project: Project
     membership: WorkspaceMember | None
-    role: WorkspaceRole | None
 
 
 @dataclass
@@ -34,7 +33,6 @@ class TaskAccessContext:
     task: Task
     project: Project
     membership: WorkspaceMember | None
-    role: WorkspaceRole | None
 
 
 class TaskAuthorization:
@@ -77,7 +75,6 @@ class TaskAuthorization:
         return ProjectAccessContext(
             project=project,
             membership=membership,
-            role=membership.role if membership else None,
         )
 
     async def get_task_context(
@@ -90,16 +87,18 @@ class TaskAuthorization:
         if task is None:
             raise NotFoundException(TASK_NOT_FOUND_MESSAGE)
 
-        project_context = await self.get_project_context(
-            task.project_id,
-            user,
-        )
+        try:
+            project_context = await self.get_project_context(
+                task.project_id,
+                user,
+            )
+        except NotFoundException:
+            raise NotFoundException(TASK_NOT_FOUND_MESSAGE) from None
 
         return TaskAccessContext(
             task=task,
             project=project_context.project,
             membership=project_context.membership,
-            role=project_context.role,
         )
 
     @staticmethod

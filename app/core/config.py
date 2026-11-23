@@ -1,6 +1,11 @@
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import (
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -8,6 +13,9 @@ from app.core.messages import SECRET_KEY_PLACEHOLDER_MESSAGE
 
 
 class Settings(BaseSettings):
+    APP_ENV: Literal["development", "testing", "production"] = "development"
+    DEBUG: bool = False
+
     POSTGRES_USER: str = Field(...)
     POSTGRES_PASSWORD: str = Field(...)
     POSTGRES_DB: str = Field(...)
@@ -15,6 +23,7 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5433
     DB_ECHO: bool = False
+    REDIS_URL: str = "redis://localhost:6380/0"
 
     SECRET_KEY: SecretStr = Field(min_length=32)
     ALGORITHM: Literal["HS256", "HS384", "HS512"] = "HS256"
@@ -37,6 +46,17 @@ class Settings(BaseSettings):
             raise ValueError(SECRET_KEY_PLACEHOLDER_MESSAGE)
 
         return value
+
+    @model_validator(mode="after")
+    def validate_production_settings(self):
+        if self.APP_ENV == "production":
+            if self.DEBUG:
+                raise ValueError("DEBUG must be disabled in production.")
+
+            if self.DB_ECHO:
+                raise ValueError("DB_ECHO must be disabled in production.")
+
+        return self
 
     @property
     def DATABASE_URL(self) -> URL:

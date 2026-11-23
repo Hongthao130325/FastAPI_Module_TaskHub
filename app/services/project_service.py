@@ -1,30 +1,20 @@
-from collections.abc import Awaitable, Callable
-from typing import TypeVar
-
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
     BadRequestException,
-    ConflictException,
-    ForbiddenException,
-    NotFoundException,
 )
 from app.core.messages import (
-    PROJECT_NOT_FOUND_MESSAGE,
+    PROJECT_ACCESS_FORBIDDEN_MESSAGE,
+    PROJECT_MODIFICATION_ARCHIVED_MESSAGE,
     PROJECT_UPDATE_EMPTY_MESSAGE,
-    RESOURCE_CONFLICT_MESSAGE,
-    WORKSPACE_ACCESS_FORBIDDEN_MESSAGE,
-    WORKSPACE_NOT_FOUND_MESSAGE,
 )
-from app.core.permissions import has_workspace_role
 from app.models.enums import UserRole, WorkspaceRole
 from app.models.project import Project
 from app.models.user import User
 from app.repositories.project_repository import ProjectRepository
-from app.repositories.workspace_repository import WorkspaceRepository
-
-T = TypeVar("T")
+from app.services.task_authorization import TaskAuthorization
+from app.services.transaction import execute_write
+from app.services.workspace_authorization import WorkspaceAuthorization
 
 
 class ProjectService:
@@ -32,26 +22,13 @@ class ProjectService:
         self,
         session: AsyncSession,
         repository: ProjectRepository,
-        workspace_repository: WorkspaceRepository,
+        authorization: TaskAuthorization,
+        workspace_authorization: WorkspaceAuthorization,
     ):
         self.session = session
         self.repository = repository
-        self.workspace_repository = workspace_repository
-
-    async def _execute_write(
-        self,
-        operation: Callable[[], Awaitable[T]],
-    ) -> T:
-        try:
-            result = await operation()
-            await self.session.commit()
-
-            return result
-
-        except IntegrityError as exc:
-            await self.session.rollback()
-
-            raise ConflictException(RESOURCE_CONFLICT_MESSAGE) from exc
+        self.authorization = authorization
+        self.workspace_authorization = workspace_authorization
 
     async def _ensure_workspace_access(
         self,
@@ -59,28 +36,17 @@ class ProjectService:
         user: User,
         allowed_roles: set[WorkspaceRole],
     ):
-        workspace = await self.workspace_repository.get_by_id(workspace_id)
-
-        if workspace is None:
-            raise NotFoundException(WORKSPACE_NOT_FOUND_MESSAGE)
-
-        membership = await self.workspace_repository.get_membership(
+        context = await self.workspace_authorization.get_workspace_context(
             workspace_id,
-            user.id,
+            user,
+        )
+        self.workspace_authorization.ensure_role_access(
+            context,
+            user,
+            allowed_roles,
         )
 
-        if not has_workspace_role(user, membership, allowed_roles):
-            raise ForbiddenException(WORKSPACE_ACCESS_FORBIDDEN_MESSAGE)
-
-        return workspace
-
-    async def _get_project(self, project_id: int) -> Project:
-        project = await self.repository.get_by_id(project_id)
-
-        if project is None:
-            raise NotFoundException(PROJECT_NOT_FOUND_MESSAGE)
-
-        return project
+        return context.workspace
 
     async def _ensure_project_access(
         self,
@@ -88,15 +54,18 @@ class ProjectService:
         user: User,
         allowed_roles: set[WorkspaceRole],
     ) -> Project:
-        project = await self._get_project(project_id)
-
-        await self._ensure_workspace_access(
-            project.workspace_id,
+        context = await self.authorization.get_project_context(
+            project_id,
+            user,
+        )
+        self.authorization.ensure_role_access(
+            context,
             user,
             allowed_roles,
+            PROJECT_ACCESS_FORBIDDEN_MESSAGE,
         )
 
-        return project
+        return context.project
 
     async def create_project(
         self,
@@ -117,7 +86,7 @@ class ProjectService:
             description=description,
         )
 
-        await self._execute_write(lambda: self.repository.create(project))
+        await execute_write(self.session, lambda: self.repository.create(project))
         await self.session.refresh(project)
 
         return project
@@ -166,16 +135,24 @@ class ProjectService:
         update_data: dict,
         user: User,
     ) -> Project:
-        project = await self._ensure_project_access(
+        context = await self.authorization.get_project_context(
             project_id,
             user,
-            {WorkspaceRole.OWNER, WorkspaceRole.EDITOR},
         )
+        self.authorization.ensure_write_access(
+            context,
+            user,
+            PROJECT_ACCESS_FORBIDDEN_MESSAGE,
+            archived_message=PROJECT_MODIFICATION_ARCHIVED_MESSAGE,
+        )
+        project = context.project
 
         if not update_data:
             raise BadRequestException(PROJECT_UPDATE_EMPTY_MESSAGE)
 
-        await self._execute_write(lambda: self.repository.update(project, update_data))
+        await execute_write(
+            self.session, lambda: self.repository.update(project, update_data)
+        )
         await self.session.refresh(project)
 
         return project
@@ -185,13 +162,19 @@ class ProjectService:
         project_id: int,
         user: User,
     ) -> Project:
-        project = await self._ensure_project_access(
+        context = await self.authorization.get_project_context(
             project_id,
             user,
-            {WorkspaceRole.OWNER, WorkspaceRole.EDITOR},
         )
+        self.authorization.ensure_write_access(
+            context,
+            user,
+            PROJECT_ACCESS_FORBIDDEN_MESSAGE,
+            archived_message=PROJECT_MODIFICATION_ARCHIVED_MESSAGE,
+        )
+        project = context.project
 
-        await self._execute_write(lambda: self.repository.archive(project))
+        await execute_write(self.session, lambda: self.repository.archive(project))
         await self.session.refresh(project)
 
         return project

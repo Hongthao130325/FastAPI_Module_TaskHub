@@ -102,16 +102,28 @@ class TaskAuthorization:
         )
 
     @staticmethod
+    def ensure_role_access(
+        context: ProjectAccessContext | TaskAccessContext,
+        user: User,
+        allowed_roles: set[WorkspaceRole],
+        forbidden_message: str = TASK_ACCESS_FORBIDDEN_MESSAGE,
+    ) -> None:
+        if not has_workspace_role(user, context.membership, allowed_roles):
+            raise ForbiddenException(forbidden_message)
+
+    @staticmethod
     def ensure_write_access(
         context: ProjectAccessContext | TaskAccessContext,
         user: User,
+        forbidden_message: str = TASK_ACCESS_FORBIDDEN_MESSAGE,
+        archived_message: str = PROJECT_ARCHIVED_MESSAGE,
     ) -> None:
-        if not has_workspace_role(
+        TaskAuthorization.ensure_role_access(
+            context,
             user,
-            context.membership,
             {WorkspaceRole.OWNER, WorkspaceRole.EDITOR},
-        ):
-            raise ForbiddenException(TASK_ACCESS_FORBIDDEN_MESSAGE)
+            forbidden_message,
+        )
 
         if context.project.status == ProjectStatus.ARCHIVED:
-            raise ConflictException(PROJECT_ARCHIVED_MESSAGE)
+            raise ConflictException(archived_message)

@@ -1,4 +1,4 @@
-from typing import Annotated
+﻿from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query, status
 
@@ -11,6 +11,7 @@ from app.core.constants import (
 from app.dependencies.auth import CurrentUserDep
 from app.dependencies.common import get_task_service
 from app.models.enums import TaskPriority, TaskStatus
+from app.schemas.pagination import PaginationParams
 from app.schemas.task import (
     TaskCreate,
     TaskListResponse,
@@ -87,8 +88,7 @@ async def get_all_tasks(
     tasks, total = await service.get_all_tasks(
         project_id=project_id,
         user=current_user.user,
-        page=page,
-        limit=limit,
+        pagination=PaginationParams(page=page, limit=limit),
         statuses=statuses,
         priorities=priorities,
         assignee_id=assignee_id,

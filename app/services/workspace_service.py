@@ -1,7 +1,3 @@
-from collections.abc import Awaitable, Callable
-from typing import TypeVar
-
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
@@ -11,8 +7,6 @@ from app.core.exceptions import (
     NotFoundException,
 )
 from app.core.messages import (
-    RESOURCE_CONFLICT_MESSAGE,
-    WORKSPACE_ACCESS_FORBIDDEN_MESSAGE,
     WORKSPACE_INVITATION_USER_NOT_FOUND_MESSAGE,
     WORKSPACE_MEMBER_ALREADY_EXISTS_MESSAGE,
     WORKSPACE_MEMBER_NOT_FOUND_MESSAGE,
@@ -22,15 +16,14 @@ from app.core.messages import (
     WORKSPACE_OWNER_ROLE_CANNOT_BE_CHANGED_MESSAGE,
     WORKSPACE_UPDATE_EMPTY_MESSAGE,
 )
-from app.core.permissions import has_workspace_role
 from app.models.enums import UserRole, WorkspaceRole
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
 from app.repositories.user_repository import UserRepository
 from app.repositories.workspace_repository import WorkspaceRepository
-
-T = TypeVar("T")
+from app.services.transaction import execute_write
+from app.services.workspace_authorization import WorkspaceAuthorization
 
 
 class WorkspaceService:
@@ -39,30 +32,12 @@ class WorkspaceService:
         session: AsyncSession,
         repository: WorkspaceRepository,
         user_repository: UserRepository,
+        authorization: WorkspaceAuthorization,
     ):
         self.session = session
         self.repository = repository
         self.user_repository = user_repository
-
-    async def _execute_write(
-        self,
-        operation: Callable[[], Awaitable[T]],
-    ) -> T:
-        try:
-            result = await operation()
-            await self.session.commit()
-
-            return result
-
-        except IntegrityError as exc:
-            await self.session.rollback()
-
-            raise ConflictException(RESOURCE_CONFLICT_MESSAGE) from exc
-
-        except Exception:
-            await self.session.rollback()
-
-            raise
+        self.authorization = authorization
 
     async def _get_workspace(self, workspace_id: int) -> Workspace:
         workspace = await self.repository.get_by_id(workspace_id)
@@ -78,28 +53,26 @@ class WorkspaceService:
         user: User,
         allowed_roles: set[WorkspaceRole],
     ) -> Workspace:
-        workspace = await self._get_workspace(workspace_id)
-        membership = await self.repository.get_membership(
+        context = await self.authorization.get_workspace_context(
             workspace_id,
-            user.id,
+            user,
         )
+        self.authorization.ensure_role_access(context, user, allowed_roles)
 
-        if not has_workspace_role(user, membership, allowed_roles):
-            raise ForbiddenException(WORKSPACE_ACCESS_FORBIDDEN_MESSAGE)
-
-        return workspace
+        return context.workspace
 
     async def _ensure_workspace_owner(
         self,
         workspace_id: int,
         user: User,
     ) -> Workspace:
-        workspace = await self._get_workspace(workspace_id)
+        workspace = await self._ensure_workspace_access(
+            workspace_id,
+            user,
+            {WorkspaceRole.OWNER},
+        )
 
-        if user.role == UserRole.ADMIN:
-            return workspace
-
-        if workspace.owner_id != user.id:
+        if user.role != UserRole.ADMIN and workspace.owner_id != user.id:
             raise ForbiddenException(WORKSPACE_OWNER_REQUIRED_MESSAGE)
 
         return workspace
@@ -109,18 +82,18 @@ class WorkspaceService:
         workspace_id: int,
         user: User,
     ) -> Workspace:
-        workspace = await self.repository.get_by_id_for_update(workspace_id)
-
-        if workspace is None:
-            raise NotFoundException(WORKSPACE_NOT_FOUND_MESSAGE)
-
-        membership = await self.repository.get_membership(
+        context = await self.authorization.get_workspace_context(
             workspace_id,
-            user.id,
+            user,
+            for_update=True,
+        )
+        self.authorization.ensure_role_access(
+            context,
+            user,
+            {WorkspaceRole.OWNER},
         )
 
-        if not has_workspace_role(user, membership, {WorkspaceRole.OWNER}):
-            raise ForbiddenException(WORKSPACE_ACCESS_FORBIDDEN_MESSAGE)
+        workspace = context.workspace
 
         if user.role != UserRole.ADMIN and workspace.owner_id != user.id:
             raise ForbiddenException(WORKSPACE_OWNER_REQUIRED_MESSAGE)
@@ -150,7 +123,7 @@ class WorkspaceService:
 
             return workspace
 
-        await self._execute_write(operation)
+        await execute_write(self.session, operation)
         await self.session.refresh(workspace)
 
         return workspace
@@ -196,8 +169,8 @@ class WorkspaceService:
         if not update_data:
             raise BadRequestException(WORKSPACE_UPDATE_EMPTY_MESSAGE)
 
-        await self._execute_write(
-            lambda: self.repository.update(workspace, update_data)
+        await execute_write(
+            self.session, lambda: self.repository.update(workspace, update_data)
         )
         await self.session.refresh(workspace)
 
@@ -210,7 +183,7 @@ class WorkspaceService:
     ) -> None:
         workspace = await self._ensure_workspace_owner(workspace_id, user)
 
-        await self._execute_write(lambda: self.repository.delete(workspace))
+        await execute_write(self.session, lambda: self.repository.delete(workspace))
 
     async def get_workspace_members(
         self,
@@ -260,7 +233,9 @@ class WorkspaceService:
             role=role,
         )
 
-        await self._execute_write(lambda: self.repository.add_member(membership))
+        await execute_write(
+            self.session, lambda: self.repository.add_member(membership)
+        )
 
         return membership, member_user
 
@@ -286,7 +261,9 @@ class WorkspaceService:
         if membership is None:
             raise NotFoundException(WORKSPACE_MEMBER_NOT_FOUND_MESSAGE)
 
-        await self._execute_write(lambda: self.repository.remove_member(membership))
+        await execute_write(
+            self.session, lambda: self.repository.remove_member(membership)
+        )
 
     async def update_workspace_member_role(
         self,
@@ -311,8 +288,8 @@ class WorkspaceService:
         if membership is None:
             raise NotFoundException(WORKSPACE_MEMBER_NOT_FOUND_MESSAGE)
 
-        await self._execute_write(
-            lambda: self.repository.update_member_role(membership, role)
+        await execute_write(
+            self.session, lambda: self.repository.update_member_role(membership, role)
         )
 
         member_user = await self.user_repository.get_by_id(user_id)

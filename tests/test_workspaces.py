@@ -148,7 +148,7 @@ async def test_non_member_cannot_access_workspace(
         f"/api/v1/workspaces/{task_context['workspace_id']}",
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 async def test_owner_can_update_workspace(

@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import TaskPriority, TaskStatus
 from app.models.task import Task
+from app.schemas.pagination import PaginationParams
 
 
 class TaskRepository:
@@ -18,8 +19,7 @@ class TaskRepository:
     async def get_all_for_project(
         self,
         project_id: int,
-        page: int,
-        limit: int,
+        pagination: PaginationParams,
         statuses: list[TaskStatus] | None = None,
         priorities: list[TaskPriority] | None = None,
         assignee_id: int | None = None,
@@ -43,8 +43,8 @@ class TaskRepository:
             select(Task)
             .where(*filters)
             .order_by(Task.id)
-            .offset((page - 1) * limit)
-            .limit(limit)
+            .offset(pagination.offset)
+            .limit(pagination.limit)
         )
 
         result = await self.session.scalars(statement)

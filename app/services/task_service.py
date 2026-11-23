@@ -20,6 +20,7 @@ from app.models.user import User
 from app.repositories.reference_repository import ReferenceRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.workspace_repository import WorkspaceRepository
+from app.schemas.pagination import PaginationParams
 from app.schemas.task import TaskCreate
 from app.services.task_authorization import (
     TaskAuthorization,
@@ -109,8 +110,7 @@ class TaskService:
         self,
         project_id: int,
         user: User,
-        page: int,
-        limit: int,
+        pagination: PaginationParams,
         statuses: list[TaskStatus] | None = None,
         priorities: list[TaskPriority] | None = None,
         assignee_id: int | None = None,
@@ -119,8 +119,7 @@ class TaskService:
 
         return await self.repository.get_all_for_project(
             project_id=project_id,
-            page=page,
-            limit=limit,
+            pagination=pagination,
             statuses=statuses,
             priorities=priorities,
             assignee_id=assignee_id,

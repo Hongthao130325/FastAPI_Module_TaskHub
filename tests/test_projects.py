@@ -70,6 +70,27 @@ async def test_owner_can_archive_project(
     assert response.json()["status"] == "ARCHIVED"
 
 
+async def test_owner_cannot_update_archived_project(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+):
+    project_id = task_context["project_id"]
+
+    archive_response = await authenticated_client.post(
+        f"/api/v1/projects/{project_id}/archive",
+    )
+
+    assert archive_response.status_code == 200
+    assert archive_response.json()["status"] == "ARCHIVED"
+
+    update_response = await authenticated_client.patch(
+        f"/api/v1/projects/{project_id}",
+        json={"name": "Updated Archived Project"},
+    )
+
+    assert update_response.status_code == 409
+
+
 async def test_owner_cannot_update_project_with_empty_payload(
     authenticated_client: AsyncClient,
     task_context: dict[str, int],
@@ -198,7 +219,7 @@ async def test_non_member_cannot_access_project(
         f"/api/v1/projects/{task_context['project_id']}",
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 async def test_non_member_cannot_get_workspace_projects(
@@ -212,7 +233,7 @@ async def test_non_member_cannot_get_workspace_projects(
         f"/api/v1/projects/workspace/{task_context['workspace_id']}",
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 async def test_admin_can_manage_project_without_membership(

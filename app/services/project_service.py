@@ -11,7 +11,7 @@ from app.core.exceptions import (
     NotFoundException,
 )
 from app.core.messages import (
-    PROJECT_NOT_FOUND_MESSAGE,
+    PROJECT_ACCESS_FORBIDDEN_MESSAGE,
     PROJECT_UPDATE_EMPTY_MESSAGE,
     RESOURCE_CONFLICT_MESSAGE,
     WORKSPACE_ACCESS_FORBIDDEN_MESSAGE,
@@ -23,6 +23,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.workspace_repository import WorkspaceRepository
+from app.services.task_authorization import TaskAuthorization
 
 T = TypeVar("T")
 
@@ -33,10 +34,12 @@ class ProjectService:
         session: AsyncSession,
         repository: ProjectRepository,
         workspace_repository: WorkspaceRepository,
+        authorization: TaskAuthorization,
     ):
         self.session = session
         self.repository = repository
         self.workspace_repository = workspace_repository
+        self.authorization = authorization
 
     async def _execute_write(
         self,
@@ -69,18 +72,13 @@ class ProjectService:
             user.id,
         )
 
+        if membership is None and user.role != UserRole.ADMIN:
+            raise NotFoundException(WORKSPACE_NOT_FOUND_MESSAGE)
+
         if not has_workspace_role(user, membership, allowed_roles):
             raise ForbiddenException(WORKSPACE_ACCESS_FORBIDDEN_MESSAGE)
 
         return workspace
-
-    async def _get_project(self, project_id: int) -> Project:
-        project = await self.repository.get_by_id(project_id)
-
-        if project is None:
-            raise NotFoundException(PROJECT_NOT_FOUND_MESSAGE)
-
-        return project
 
     async def _ensure_project_access(
         self,
@@ -88,15 +86,18 @@ class ProjectService:
         user: User,
         allowed_roles: set[WorkspaceRole],
     ) -> Project:
-        project = await self._get_project(project_id)
-
-        await self._ensure_workspace_access(
-            project.workspace_id,
+        context = await self.authorization.get_project_context(
+            project_id,
+            user,
+        )
+        self.authorization.ensure_role_access(
+            context,
             user,
             allowed_roles,
+            PROJECT_ACCESS_FORBIDDEN_MESSAGE,
         )
 
-        return project
+        return context.project
 
     async def create_project(
         self,
@@ -166,11 +167,16 @@ class ProjectService:
         update_data: dict,
         user: User,
     ) -> Project:
-        project = await self._ensure_project_access(
+        context = await self.authorization.get_project_context(
             project_id,
             user,
-            {WorkspaceRole.OWNER, WorkspaceRole.EDITOR},
         )
+        self.authorization.ensure_write_access(
+            context,
+            user,
+            PROJECT_ACCESS_FORBIDDEN_MESSAGE,
+        )
+        project = context.project
 
         if not update_data:
             raise BadRequestException(PROJECT_UPDATE_EMPTY_MESSAGE)
@@ -185,11 +191,16 @@ class ProjectService:
         project_id: int,
         user: User,
     ) -> Project:
-        project = await self._ensure_project_access(
+        context = await self.authorization.get_project_context(
             project_id,
             user,
-            {WorkspaceRole.OWNER, WorkspaceRole.EDITOR},
         )
+        self.authorization.ensure_write_access(
+            context,
+            user,
+            PROJECT_ACCESS_FORBIDDEN_MESSAGE,
+        )
+        project = context.project
 
         await self._execute_write(lambda: self.repository.archive(project))
         await self.session.refresh(project)

@@ -84,6 +84,9 @@ class WorkspaceService:
             user.id,
         )
 
+        if membership is None and user.role != UserRole.ADMIN:
+            raise NotFoundException(WORKSPACE_NOT_FOUND_MESSAGE)
+
         if not has_workspace_role(user, membership, allowed_roles):
             raise ForbiddenException(WORKSPACE_ACCESS_FORBIDDEN_MESSAGE)
 
@@ -94,12 +97,13 @@ class WorkspaceService:
         workspace_id: int,
         user: User,
     ) -> Workspace:
-        workspace = await self._get_workspace(workspace_id)
+        workspace = await self._ensure_workspace_access(
+            workspace_id,
+            user,
+            {WorkspaceRole.OWNER},
+        )
 
-        if user.role == UserRole.ADMIN:
-            return workspace
-
-        if workspace.owner_id != user.id:
+        if user.role != UserRole.ADMIN and workspace.owner_id != user.id:
             raise ForbiddenException(WORKSPACE_OWNER_REQUIRED_MESSAGE)
 
         return workspace
@@ -118,6 +122,9 @@ class WorkspaceService:
             workspace_id,
             user.id,
         )
+
+        if membership is None and user.role != UserRole.ADMIN:
+            raise NotFoundException(WORKSPACE_NOT_FOUND_MESSAGE)
 
         if not has_workspace_role(user, membership, {WorkspaceRole.OWNER}):
             raise ForbiddenException(WORKSPACE_ACCESS_FORBIDDEN_MESSAGE)

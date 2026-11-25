@@ -79,8 +79,8 @@ async def test_delete_pattern(cache_service):
 
 @pytest.mark.asyncio
 async def test_get_returns_none_after_cache_expiration(cache_service):
-    await cache_service.set("expired:key", {"value": 1}, ttl=1)
-
-    await asyncio.sleep(1.1)
+    await cache_service.set("expired:key", {"value": 1}, ttl=60)
+    await cache_service.redis.pexpire("expired:key", 50)
+    await asyncio.sleep(0.1)
 
     assert await cache_service.get("expired:key") is None

@@ -2,7 +2,7 @@ import logging
 import logging.config
 
 
-def configure_logging() -> None:
+def configure_logging(log_level: str = "INFO") -> None:
     logging.config.dictConfig(
         {
             "version": 1,
@@ -19,7 +19,7 @@ def configure_logging() -> None:
                 },
             },
             "root": {
-                "level": "INFO",
+                "level": log_level,
                 "handlers": ["console"],
             },
         }

@@ -20,6 +20,13 @@ from app.models.enums import AppEnv
 class Settings(BaseSettings):
     APP_ENV: AppEnv = AppEnv.DEVELOPMENT
     DEBUG: bool = False
+    LOG_LEVEL: Literal[
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR",
+        "CRITICAL",
+    ] = "INFO"
 
     POSTGRES_USER: str = Field(...)
     POSTGRES_PASSWORD: str = Field(...)

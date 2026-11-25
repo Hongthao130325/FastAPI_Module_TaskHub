@@ -3,10 +3,11 @@ from typing import Any
 
 from redis.asyncio import Redis
 
+from app.core.constants import CACHE_DEFAULT_TTL_SECONDS
+from app.core.messages import CACHE_TTL_INVALID_MESSAGE
+
 
 class CacheService:
-    DEFAULT_TTL = 300
-
     def __init__(self, redis: Redis):
         self.redis = redis
 
@@ -22,10 +23,10 @@ class CacheService:
         self,
         key: str,
         value: Any,
-        ttl: int = DEFAULT_TTL,
+        ttl: int = CACHE_DEFAULT_TTL_SECONDS,
     ) -> bool:
         if ttl <= 0:
-            raise ValueError("Cache TTL must be greater than zero.")
+            raise ValueError(CACHE_TTL_INVALID_MESSAGE)
 
         serialized_value = json.dumps(value, ensure_ascii=False)
 
@@ -39,9 +40,9 @@ class CacheService:
         return await self.redis.delete(key)
 
     async def delete_pattern(self, pattern: str) -> int:
-        deleted_count = 0
+        keys = [key async for key in self.redis.scan_iter(match=pattern)]
 
-        async for key in self.redis.scan_iter(match=pattern):
-            deleted_count += await self.redis.delete(key)
+        if not keys:
+            return 0
 
-        return deleted_count
+        return await self.redis.unlink(*keys)

@@ -55,3 +55,4 @@ COMMENT_ACCESS_FORBIDDEN_MESSAGE = "You can only modify your own comments"
 
 DEBUG_PRODUCTION_MESSAGE = "DEBUG must be disabled in production."
 DB_ECHO_PRODUCTION_MESSAGE = "DB_ECHO must be disabled in production."
+CACHE_TTL_INVALID_MESSAGE = "Cache TTL must be greater than zero."

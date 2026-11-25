@@ -1,6 +1,12 @@
 from enum import StrEnum
 
 
+class AppEnv(StrEnum):
+    DEVELOPMENT = "development"
+    TESTING = "testing"
+    PRODUCTION = "production"
+
+
 class UserRole(StrEnum):
     ADMIN = "ADMIN"
     MEMBER = "MEMBER"

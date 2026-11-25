@@ -32,6 +32,8 @@ def test_settings_defaults_to_development():
     assert settings.APP_ENV == "development"
     assert settings.DEBUG is False
     assert settings.DB_ECHO is False
+    assert settings.REDIS_SOCKET_TIMEOUT == 5.0
+    assert settings.REDIS_SOCKET_CONNECT_TIMEOUT == 5.0
 
 
 def test_settings_rejects_unsupported_environment():

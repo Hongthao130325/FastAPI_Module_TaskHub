@@ -52,3 +52,6 @@ LABEL_UPDATE_EMPTY_MESSAGE = "At least one field must be provided"
 
 COMMENT_NOT_FOUND_MESSAGE = "Comment not found"
 COMMENT_ACCESS_FORBIDDEN_MESSAGE = "You can only modify your own comments"
+
+DEBUG_PRODUCTION_MESSAGE = "DEBUG must be disabled in production."
+DB_ECHO_PRODUCTION_MESSAGE = "DB_ECHO must be disabled in production."

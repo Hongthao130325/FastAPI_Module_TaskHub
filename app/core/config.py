@@ -1,13 +1,26 @@
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import (
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
-from app.core.messages import SECRET_KEY_PLACEHOLDER_MESSAGE
+from app.core.messages import (
+    DB_ECHO_PRODUCTION_MESSAGE,
+    DEBUG_PRODUCTION_MESSAGE,
+    SECRET_KEY_PLACEHOLDER_MESSAGE,
+)
+from app.models.enums import AppEnv
 
 
 class Settings(BaseSettings):
+    APP_ENV: AppEnv = AppEnv.DEVELOPMENT
+    DEBUG: bool = False
+
     POSTGRES_USER: str = Field(...)
     POSTGRES_PASSWORD: str = Field(...)
     POSTGRES_DB: str = Field(...)
@@ -15,6 +28,9 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5433
     DB_ECHO: bool = False
+    REDIS_URL: str = "redis://localhost:6380/0"
+    REDIS_SOCKET_TIMEOUT: float = Field(default=5.0, gt=0)
+    REDIS_SOCKET_CONNECT_TIMEOUT: float = Field(default=5.0, gt=0)
 
     SECRET_KEY: SecretStr = Field(min_length=32)
     ALGORITHM: Literal["HS256", "HS384", "HS512"] = "HS256"
@@ -37,6 +53,17 @@ class Settings(BaseSettings):
             raise ValueError(SECRET_KEY_PLACEHOLDER_MESSAGE)
 
         return value
+
+    @model_validator(mode="after")
+    def validate_production_settings(self):
+        if self.APP_ENV == AppEnv.PRODUCTION:
+            if self.DEBUG:
+                raise ValueError(DEBUG_PRODUCTION_MESSAGE)
+
+            if self.DB_ECHO:
+                raise ValueError(DB_ECHO_PRODUCTION_MESSAGE)
+
+        return self
 
     @property
     def DATABASE_URL(self) -> URL:

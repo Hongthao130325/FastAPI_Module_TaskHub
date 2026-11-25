@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, status
 
 from app.dependencies.auth import CurrentUserDep
 from app.dependencies.common import PaginationDep, get_comment_service
@@ -10,6 +10,7 @@ from app.schemas.comment import (
     CommentResponse,
     CommentUpdate,
 )
+from app.services.background_tasks import log_comment_created
 from app.services.comment_service import CommentService
 
 router = APIRouter(
@@ -36,11 +37,19 @@ async def create_comment(
     comment_data: CommentCreate,
     service: CommentServiceDep,
     current_user: CurrentUserDep,
+    background_tasks: BackgroundTasks,
 ) -> CommentResponse:
     comment = await service.create_comment(
         task_id,
         comment_data,
         current_user.user,
+    )
+
+    background_tasks.add_task(
+        log_comment_created,
+        comment_id=comment.id,
+        task_id=task_id,
+        author_id=current_user.user.id,
     )
 
     return CommentResponse.model_validate(comment)

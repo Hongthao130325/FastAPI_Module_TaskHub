@@ -474,3 +474,40 @@ async def test_delete_task_cascades_comments_and_task_labels(
     assert comment_count == 0
     assert task_label_count == 0
     assert label_count == 1
+
+
+async def test_create_comment_schedules_background_event(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+    monkeypatch,
+):
+    from app.api.v1.endpoints import comments
+
+    events = []
+
+    def capture_comment_created(**kwargs):
+        events.append(kwargs)
+
+    monkeypatch.setattr(
+        comments,
+        "log_comment_created",
+        capture_comment_created,
+    )
+
+    task_id = await create_task(
+        authenticated_client,
+        task_context["project_id"],
+    )
+
+    response = await authenticated_client.post(
+        f"/api/v1/tasks/{task_id}/comments",
+        json={"content": "Comment with background event"},
+    )
+
+    assert response.status_code == 201
+    assert len(events) == 1
+    assert events[0] == {
+        "comment_id": response.json()["id"],
+        "task_id": task_id,
+        "author_id": task_context["user_id"],
+    }

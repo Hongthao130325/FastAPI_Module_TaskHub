@@ -5,3 +5,4 @@ pytest-asyncio==1.4.1.post1
 httpx==0.28.1
 asgi-lifespan==2.1.0
 mypy==2.4.1
+fakeredis==2.40.0

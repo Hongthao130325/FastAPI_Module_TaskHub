@@ -15,3 +15,6 @@ class ReferenceRepository:
         user = await self.session.get(User, user_id)
 
         return user is not None
+
+    async def get_user(self, user_id: int) -> User | None:
+        return await self.session.get(User, user_id)

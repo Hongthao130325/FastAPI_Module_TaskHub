@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query, status
 
 from app.core.constants import (
     DEFAULT_PAGE,
@@ -18,6 +18,7 @@ from app.schemas.task import (
     TaskResponse,
     TaskUpdate,
 )
+from app.services.background_tasks import send_task_assigned_email
 from app.services.task_service import TaskService
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
@@ -55,12 +56,23 @@ async def create_task(
     task_data: TaskCreate,
     service: TaskServiceDep,
     current_user: CurrentUserDep,
+    background_tasks: BackgroundTasks,
 ) -> TaskResponse:
     task = await service.create_task(
         project_id,
         task_data,
         current_user.user,
     )
+
+    if task.assignee_id is not None:
+        assignee = await service.get_assignee(task.assignee_id)
+        background_tasks.add_task(
+            send_task_assigned_email,
+            to_email=assignee.email,
+            recipient_name=assignee.full_name,
+            task_title=task.title,
+            task_id=task.id,
+        )
 
     return TaskResponse.model_validate(task)
 
@@ -139,12 +151,26 @@ async def update_task(
     task_data: TaskUpdate,
     service: TaskServiceDep,
     current_user: CurrentUserDep,
+    background_tasks: BackgroundTasks,
 ) -> TaskResponse:
+    previous_task = await service.get_task_by_id(task_id, current_user.user)
+    previous_assignee_id = previous_task.assignee_id
+
     task = await service.update_task(
         task_id,
         task_data.model_dump(exclude_unset=True),
         current_user.user,
     )
+
+    if task.assignee_id is not None and task.assignee_id != previous_assignee_id:
+        assignee = await service.get_assignee(task.assignee_id)
+        background_tasks.add_task(
+            send_task_assigned_email,
+            to_email=assignee.email,
+            recipient_name=assignee.full_name,
+            task_title=task.title,
+            task_id=task.id,
+        )
 
     return TaskResponse.model_validate(task)
 

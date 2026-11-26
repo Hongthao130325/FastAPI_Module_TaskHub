@@ -768,3 +768,137 @@ async def test_get_all_tasks_with_filters(
     combined_data = combined_response.json()
     assert combined_data["total"] == 1
     assert combined_data["items"][0]["title"] == "TODO HIGH Assigned"
+
+
+async def test_task_list_cache_is_invalidated_after_mutations(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+    fake_redis,
+):
+    project_id = task_context["project_id"]
+    project_url = f"/api/v1/projects/{project_id}/tasks"
+    cache_pattern = f"tasks:project:{project_id}:*"
+
+    create_response = await authenticated_client.post(
+        project_url,
+        json={"title": "Initial Cached Task"},
+    )
+    assert create_response.status_code == 201
+    task_id = create_response.json()["id"]
+
+    get_response = await authenticated_client.get(project_url)
+    assert get_response.status_code == 200
+    assert len(await fake_redis.keys(cache_pattern)) == 1
+
+    create_response = await authenticated_client.post(
+        project_url,
+        json={"title": "Another Task"},
+    )
+    assert create_response.status_code == 201
+    assert await fake_redis.keys(cache_pattern) == []
+
+    get_response = await authenticated_client.get(project_url)
+    assert get_response.status_code == 200
+    assert len(await fake_redis.keys(cache_pattern)) == 1
+
+    update_response = await authenticated_client.patch(
+        f"/api/v1/tasks/{task_id}",
+        json={"title": "Updated Cached Task"},
+    )
+    assert update_response.status_code == 200
+    assert await fake_redis.keys(cache_pattern) == []
+
+    get_response = await authenticated_client.get(project_url)
+    assert get_response.status_code == 200
+    assert len(await fake_redis.keys(cache_pattern)) == 1
+
+    delete_response = await authenticated_client.delete(f"/api/v1/tasks/{task_id}")
+    assert delete_response.status_code == 204
+    assert await fake_redis.keys(cache_pattern) == []
+
+
+async def test_task_assignment_schedules_email_notification(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+    db_session,
+    monkeypatch,
+):
+    from app.api.v1.endpoints import tasks
+    from app.models.enums import WorkspaceRole
+    from app.models.user import User
+    from app.models.workspace_member import WorkspaceMember
+
+    notifications = []
+
+    async def capture_email(**kwargs):
+        notifications.append(kwargs)
+
+    monkeypatch.setattr(
+        tasks,
+        "send_task_assigned_email",
+        capture_email,
+    )
+
+    first_assignee = User(
+        email="first-assignee@example.com",
+        full_name="First Assignee",
+        hashed_password="test-hash",
+    )
+    second_assignee = User(
+        email="second-assignee@example.com",
+        full_name="Second Assignee",
+        hashed_password="test-hash",
+    )
+    db_session.add_all([first_assignee, second_assignee])
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            WorkspaceMember(
+                workspace_id=task_context["workspace_id"],
+                user_id=first_assignee.id,
+                role=WorkspaceRole.EDITOR,
+            ),
+            WorkspaceMember(
+                workspace_id=task_context["workspace_id"],
+                user_id=second_assignee.id,
+                role=WorkspaceRole.EDITOR,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    response = await authenticated_client.post(
+        f"/api/v1/projects/{task_context['project_id']}/tasks",
+        json={
+            "title": "Assigned Task",
+            "assignee_id": first_assignee.id,
+        },
+    )
+
+    assert response.status_code == 201
+    task_id = response.json()["id"]
+    assert len(notifications) == 1
+    assert notifications[0] == {
+        "to_email": first_assignee.email,
+        "recipient_name": first_assignee.full_name,
+        "task_title": "Assigned Task",
+        "task_id": task_id,
+    }
+
+    response = await authenticated_client.patch(
+        f"/api/v1/tasks/{task_id}",
+        json={"assignee_id": second_assignee.id},
+    )
+
+    assert response.status_code == 200
+    assert len(notifications) == 2
+    assert notifications[1]["to_email"] == second_assignee.email
+
+    response = await authenticated_client.patch(
+        f"/api/v1/tasks/{task_id}",
+        json={"title": "Updated Assigned Task"},
+    )
+
+    assert response.status_code == 200
+    assert len(notifications) == 2

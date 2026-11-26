@@ -1,3 +1,9 @@
+import hashlib
+import json
+import logging
+from typing import Any
+
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
@@ -15,9 +21,12 @@ from app.repositories.reference_repository import ReferenceRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.workspace_repository import WorkspaceRepository
 from app.schemas.pagination import PaginationParams
-from app.schemas.task import TaskCreate
+from app.schemas.task import TaskCreate, TaskResponse
+from app.services.cache_service import CacheService
 from app.services.task_authorization import TaskAuthorization
 from app.services.transaction import execute_write
+
+logger = logging.getLogger(__name__)
 
 
 class TaskService:
@@ -28,12 +37,46 @@ class TaskService:
         reference_repository: ReferenceRepository,
         workspace_repository: WorkspaceRepository,
         authorization: TaskAuthorization,
+        cache_service: CacheService,
     ):
         self.session = session
         self.repository = repository
         self.reference_repository = reference_repository
         self.workspace_repository = workspace_repository
         self.authorization = authorization
+        self.cache_service = cache_service
+
+    def _build_task_cache_key(
+        self,
+        project_id: int,
+        pagination: PaginationParams,
+        statuses: list[TaskStatus] | None,
+        priorities: list[TaskPriority] | None,
+        assignee_id: int | None,
+    ) -> str:
+        filters = {
+            "statuses": sorted(item.value for item in statuses) if statuses else None,
+            "priorities": sorted(item.value for item in priorities)
+            if priorities
+            else None,
+            "assignee_id": assignee_id,
+            "page": pagination.page,
+            "limit": pagination.limit,
+        }
+        serialized_filters = json.dumps(filters, sort_keys=True)
+        digest = hashlib.sha256(serialized_filters.encode()).hexdigest()
+
+        return f"tasks:project:{project_id}:{digest}"
+
+    async def _invalidate_project_cache(self, project_id: int) -> None:
+        try:
+            await self.cache_service.delete_pattern(f"tasks:project:{project_id}:*")
+        except RedisError:
+            logger.warning(
+                "Failed to invalidate task cache for project %s",
+                project_id,
+                exc_info=True,
+            )
 
     async def _validate_assignee(
         self,
@@ -53,6 +96,14 @@ class TaskService:
 
         if membership is None:
             raise BadRequestException(TASK_ASSIGNEE_NOT_IN_WORKSPACE_MESSAGE)
+
+    async def get_assignee(self, user_id: int) -> User:
+        user = await self.reference_repository.get_user(user_id)
+
+        if user is None:
+            raise NotFoundException(USER_NOT_FOUND_MESSAGE)
+
+        return user
 
     async def create_task(
         self,
@@ -79,6 +130,7 @@ class TaskService:
 
         await execute_write(self.session, lambda: self.repository.create(task))
         await self.session.refresh(task)
+        await self._invalidate_project_cache(project_id)
 
         return task
 
@@ -90,16 +142,59 @@ class TaskService:
         statuses: list[TaskStatus] | None = None,
         priorities: list[TaskPriority] | None = None,
         assignee_id: int | None = None,
-    ) -> tuple[list[Task], int]:
+    ) -> tuple[list[Task | dict[str, Any]], int]:
         await self.authorization.get_project_context(project_id, user)
 
-        return await self.repository.get_all_for_project(
+        cache_key = self._build_task_cache_key(
+            project_id,
+            pagination,
+            statuses,
+            priorities,
+            assignee_id,
+        )
+
+        try:
+            cached_data = await self.cache_service.get(cache_key)
+
+            if (
+                isinstance(cached_data, dict)
+                and isinstance(cached_data.get("items"), list)
+                and isinstance(cached_data.get("total"), int)
+            ):
+                return cached_data["items"], cached_data["total"]
+
+        except (RedisError, ValueError, TypeError):
+            logger.warning(
+                "Failed to read task cache for project %s",
+                project_id,
+                exc_info=True,
+            )
+
+        tasks, total = await self.repository.get_all_for_project(
             project_id=project_id,
             pagination=pagination,
             statuses=statuses,
             priorities=priorities,
             assignee_id=assignee_id,
         )
+
+        try:
+            cached_items = [
+                TaskResponse.model_validate(task).model_dump(mode="json")
+                for task in tasks
+            ]
+            await self.cache_service.set(
+                cache_key,
+                {"items": cached_items, "total": total},
+            )
+        except (RedisError, ValueError, TypeError):
+            logger.warning(
+                "Failed to write task cache for project %s",
+                project_id,
+                exc_info=True,
+            )
+
+        return tasks, total
 
     async def get_task_by_id(
         self,
@@ -129,6 +224,7 @@ class TaskService:
             self.session, lambda: self.repository.update(context.task, update_data)
         )
         await self.session.refresh(context.task)
+        await self._invalidate_project_cache(context.project.id)
 
         return context.task
 
@@ -141,3 +237,4 @@ class TaskService:
         self.authorization.ensure_write_access(context, user)
 
         await execute_write(self.session, lambda: self.repository.delete(context.task))
+        await self._invalidate_project_cache(context.project.id)

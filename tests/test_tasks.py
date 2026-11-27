@@ -823,10 +823,10 @@ async def test_task_assignment_schedules_email_notification(
     db_session,
     monkeypatch,
 ):
-    from app.api.v1.endpoints import tasks
     from app.models.enums import WorkspaceRole
     from app.models.user import User
     from app.models.workspace_member import WorkspaceMember
+    from app.services import task_service
 
     notifications = []
 
@@ -834,7 +834,7 @@ async def test_task_assignment_schedules_email_notification(
         notifications.append(kwargs)
 
     monkeypatch.setattr(
-        tasks,
+        task_service,
         "send_task_assigned_email",
         capture_email,
     )
@@ -902,3 +902,68 @@ async def test_task_assignment_schedules_email_notification(
 
     assert response.status_code == 200
     assert len(notifications) == 2
+
+
+async def test_task_list_returns_cached_data_without_database_query(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+    monkeypatch,
+):
+    from app.repositories.task_repository import TaskRepository
+
+    project_url = f"/api/v1/projects/{task_context['project_id']}/tasks"
+
+    create_response = await authenticated_client.post(
+        project_url,
+        json={"title": "Cached Task"},
+    )
+    assert create_response.status_code == 201
+
+    first_response = await authenticated_client.get(project_url)
+    assert first_response.status_code == 200
+    first_data = first_response.json()
+
+    async def fail_database_query(*args, **kwargs):
+        raise AssertionError("Database should not be queried on a cache hit")
+
+    monkeypatch.setattr(
+        TaskRepository,
+        "get_all_for_project",
+        fail_database_query,
+    )
+
+    second_response = await authenticated_client.get(project_url)
+
+    assert second_response.status_code == 200
+    assert second_response.json() == first_data
+
+
+async def test_task_list_handles_redis_get_and_set_failures(
+    authenticated_client: AsyncClient,
+    task_context: dict[str, int],
+    monkeypatch,
+):
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    from app.services.cache_service import CacheService
+
+    project_url = f"/api/v1/projects/{task_context['project_id']}/tasks"
+
+    create_response = await authenticated_client.post(
+        project_url,
+        json={"title": "Database Fallback Task"},
+    )
+    assert create_response.status_code == 201
+
+    async def fail_cache_operation(*args, **kwargs):
+        raise RedisConnectionError("Redis unavailable")
+
+    monkeypatch.setattr(CacheService, "get", fail_cache_operation)
+    monkeypatch.setattr(CacheService, "set", fail_cache_operation)
+
+    response = await authenticated_client.get(project_url)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Database Fallback Task"

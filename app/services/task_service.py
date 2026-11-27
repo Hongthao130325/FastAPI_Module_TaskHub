@@ -1,8 +1,8 @@
 import hashlib
 import json
 import logging
-from typing import Any
 
+from fastapi import BackgroundTasks
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +22,7 @@ from app.repositories.task_repository import TaskRepository
 from app.repositories.workspace_repository import WorkspaceRepository
 from app.schemas.pagination import PaginationParams
 from app.schemas.task import TaskCreate, TaskResponse
+from app.services.background_tasks import send_task_assigned_email
 from app.services.cache_service import CacheService
 from app.services.task_authorization import TaskAuthorization
 from app.services.transaction import execute_write
@@ -82,11 +83,13 @@ class TaskService:
         self,
         workspace_id: int,
         assignee_id: int | None,
-    ) -> None:
+    ) -> User | None:
         if assignee_id is None:
-            return
+            return None
 
-        if not await self.reference_repository.user_exists(assignee_id):
+        assignee = await self.reference_repository.get_user(assignee_id)
+
+        if assignee is None:
             raise NotFoundException(USER_NOT_FOUND_MESSAGE)
 
         membership = await self.workspace_repository.get_membership(
@@ -97,19 +100,31 @@ class TaskService:
         if membership is None:
             raise BadRequestException(TASK_ASSIGNEE_NOT_IN_WORKSPACE_MESSAGE)
 
-    async def get_assignee(self, user_id: int) -> User:
-        user = await self.reference_repository.get_user(user_id)
+        return assignee
 
-        if user is None:
-            raise NotFoundException(USER_NOT_FOUND_MESSAGE)
+    def _schedule_assignment_notification(
+        self,
+        background_tasks: BackgroundTasks,
+        task: Task,
+        assignee: User | None,
+    ) -> None:
+        if assignee is None:
+            return
 
-        return user
+        background_tasks.add_task(
+            send_task_assigned_email,
+            to_email=assignee.email,
+            recipient_name=assignee.full_name,
+            task_title=task.title,
+            task_id=task.id,
+        )
 
     async def create_task(
         self,
         project_id: int,
         task_data: TaskCreate,
         user: User,
+        background_tasks: BackgroundTasks,
     ) -> Task:
         context = await self.authorization.get_project_context(
             project_id,
@@ -117,7 +132,7 @@ class TaskService:
         )
         self.authorization.ensure_write_access(context, user)
 
-        await self._validate_assignee(
+        assignee = await self._validate_assignee(
             context.project.workspace_id,
             task_data.assignee_id,
         )
@@ -131,6 +146,11 @@ class TaskService:
         await execute_write(self.session, lambda: self.repository.create(task))
         await self.session.refresh(task)
         await self._invalidate_project_cache(project_id)
+        self._schedule_assignment_notification(
+            background_tasks,
+            task,
+            assignee,
+        )
 
         return task
 
@@ -142,7 +162,7 @@ class TaskService:
         statuses: list[TaskStatus] | None = None,
         priorities: list[TaskPriority] | None = None,
         assignee_id: int | None = None,
-    ) -> tuple[list[Task | dict[str, Any]], int]:
+    ) -> tuple[list[TaskResponse], int]:
         await self.authorization.get_project_context(project_id, user)
 
         cache_key = self._build_task_cache_key(
@@ -161,7 +181,9 @@ class TaskService:
                 and isinstance(cached_data.get("items"), list)
                 and isinstance(cached_data.get("total"), int)
             ):
-                return cached_data["items"], cached_data["total"]
+                return [
+                    TaskResponse.model_validate(item) for item in cached_data["items"]
+                ], cached_data["total"]
 
         except (RedisError, ValueError, TypeError):
             logger.warning(
@@ -178,11 +200,10 @@ class TaskService:
             assignee_id=assignee_id,
         )
 
+        response_items = [TaskResponse.model_validate(task) for task in tasks]
+
         try:
-            cached_items = [
-                TaskResponse.model_validate(task).model_dump(mode="json")
-                for task in tasks
-            ]
+            cached_items = [item.model_dump(mode="json") for item in response_items]
             await self.cache_service.set(
                 cache_key,
                 {"items": cached_items, "total": total},
@@ -194,7 +215,7 @@ class TaskService:
                 exc_info=True,
             )
 
-        return tasks, total
+        return response_items, total
 
     async def get_task_by_id(
         self,
@@ -210,12 +231,16 @@ class TaskService:
         task_id: int,
         update_data: dict,
         user: User,
+        background_tasks: BackgroundTasks,
     ) -> Task:
         context = await self.authorization.get_task_context(task_id, user)
         self.authorization.ensure_write_access(context, user)
 
+        previous_assignee_id = context.task.assignee_id
+        assignee = None
+
         if "assignee_id" in update_data:
-            await self._validate_assignee(
+            assignee = await self._validate_assignee(
                 workspace_id=context.project.workspace_id,
                 assignee_id=update_data["assignee_id"],
             )
@@ -225,6 +250,13 @@ class TaskService:
         )
         await self.session.refresh(context.task)
         await self._invalidate_project_cache(context.project.id)
+
+        if assignee is not None and assignee.id != previous_assignee_id:
+            self._schedule_assignment_notification(
+                background_tasks,
+                context.task,
+                assignee,
+            )
 
         return context.task
 

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.db.session import AsyncSessionLocal
+from app.dependencies.cache import CacheServiceDep
 from app.repositories.comment_repository import CommentRepository
 from app.repositories.label_repository import LabelRepository
 from app.repositories.project_repository import ProjectRepository
@@ -42,6 +43,7 @@ def get_task_authorization(
 
 def get_task_service(
     session: Annotated[AsyncSession, Depends(get_db)],
+    cache_service: CacheServiceDep,
 ) -> TaskService:
     authorization = get_task_authorization(session)
     reference_repository = ReferenceRepository(session)
@@ -52,6 +54,7 @@ def get_task_service(
         reference_repository=reference_repository,
         workspace_repository=authorization.workspace_repository,
         authorization=authorization,
+        cache_service=cache_service,
     )
 
 

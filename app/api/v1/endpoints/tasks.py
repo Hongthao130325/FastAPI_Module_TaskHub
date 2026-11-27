@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query, status
 
 from app.core.constants import (
     DEFAULT_PAGE,
@@ -55,11 +55,13 @@ async def create_task(
     task_data: TaskCreate,
     service: TaskServiceDep,
     current_user: CurrentUserDep,
+    background_tasks: BackgroundTasks,
 ) -> TaskResponse:
     task = await service.create_task(
         project_id,
         task_data,
         current_user.user,
+        background_tasks,
     )
 
     return TaskResponse.model_validate(task)
@@ -95,7 +97,7 @@ async def get_all_tasks(
     )
 
     return TaskListResponse(
-        items=[TaskResponse.model_validate(task) for task in tasks],
+        items=tasks,
         total=total,
         page=page,
         limit=limit,
@@ -139,11 +141,13 @@ async def update_task(
     task_data: TaskUpdate,
     service: TaskServiceDep,
     current_user: CurrentUserDep,
+    background_tasks: BackgroundTasks,
 ) -> TaskResponse:
     task = await service.update_task(
         task_id,
         task_data.model_dump(exclude_unset=True),
         current_user.user,
+        background_tasks,
     )
 
     return TaskResponse.model_validate(task)

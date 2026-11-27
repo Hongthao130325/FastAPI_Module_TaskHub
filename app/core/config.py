@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     REDIS_SOCKET_TIMEOUT: float = Field(default=5.0, gt=0)
     REDIS_SOCKET_CONNECT_TIMEOUT: float = Field(default=5.0, gt=0)
 
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = Field(default=587, gt=0, le=65535)
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: SecretStr | None = None
+    SMTP_FROM_EMAIL: str | None = None
+    SMTP_USE_TLS: bool = True
+    SMTP_TIMEOUT_SECONDS: float = Field(default=10.0, gt=0)
     SECRET_KEY: SecretStr = Field(min_length=32)
     ALGORITHM: Literal["HS256", "HS384", "HS512"] = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, gt=0)

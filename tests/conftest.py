@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest_asyncio
+from fakeredis.aioredis import FakeRedis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -21,6 +22,7 @@ from app.core.security import (
     create_refresh_token,
     decode_refresh_token,
 )
+from app.dependencies.cache import get_cache_service
 from app.dependencies.common import get_db
 from app.main import app
 from app.models.enums import WorkspaceRole
@@ -29,6 +31,7 @@ from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
+from app.services.cache_service import CacheService
 
 _test_database_initialized = False
 
@@ -147,13 +150,27 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest_asyncio.fixture
+async def fake_redis() -> AsyncGenerator[FakeRedis, None]:
+    redis = FakeRedis(decode_responses=True)
+    try:
+        yield redis
+    finally:
+        await redis.aclose()
+
+
+@pytest_asyncio.fixture
 async def async_client(
     db_session: AsyncSession,
+    fake_redis: FakeRedis,
 ) -> AsyncGenerator[AsyncClient, None]:
     async def override_get_db():
         yield db_session
 
+    def override_get_cache_service() -> CacheService:
+        return CacheService(fake_redis)
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_cache_service] = override_get_cache_service
 
     try:
         transport = ASGITransport(app=app)
@@ -166,7 +183,7 @@ async def async_client(
 
     finally:
         app.dependency_overrides.pop(get_db, None)
-
+        app.dependency_overrides.pop(get_cache_service, None)
 
 @pytest_asyncio.fixture
 async def user_context_factory(
